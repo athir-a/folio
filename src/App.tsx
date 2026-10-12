@@ -4,6 +4,7 @@ import { useLibrary } from './state/libraryStore';
 import { AddBookButton } from './ui/hud/AddBookButton';
 import { DropOverlay } from './ui/hud/DropOverlay';
 import { EmptyShelfHint } from './ui/hud/EmptyShelfHint';
+import { LoadingScreen } from './ui/hud/LoadingScreen';
 import { Toast } from './ui/hud/Toast';
 import { TopBar } from './ui/hud/TopBar';
 import { Reader } from './ui/reader/Reader';
@@ -29,6 +30,7 @@ export function App() {
       <Toast />
       <DropOverlay />
       <Reader />
+      <LoadingScreen />
     </div>
   );
 }

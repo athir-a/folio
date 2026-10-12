@@ -3,8 +3,9 @@ import { luminance, shade } from '../../lib/color';
 import { mulberry32 } from '../../lib/random';
 
 /**
- * Every texture in the room is painted on a canvas at runtime, so the scene
- * needs no image assets.
+ * Textures that are unique per object (book spines, the curtain print…) are
+ * painted on a canvas at runtime. Generic surfaces (wood, plaster, fabric
+ * weave) use the scanned PBR textures in public/assets instead.
  */
 
 function makeCanvas(w: number, h: number) {
@@ -28,91 +29,84 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) 
   return `${t.trimEnd()}…`;
 }
 
-/** Book spine: cloth-like colour, gold bands and the title running top-to-bottom. */
-export function spineTexture(title: string, color: string, thickness: number, height: number) {
-  const H = 512;
-  const W = Math.max(40, Math.round((H * thickness) / height));
-  const [canvas, ctx] = makeCanvas(W, H);
+export interface SpineTextures {
+  map: THREE.Texture;
+  /** Green = roughness, blue = metalness. Makes the foil title actually shine. */
+  orm: THREE.Texture;
+}
 
-  const g = ctx.createLinearGradient(0, 0, W, 0);
-  g.addColorStop(0, shade(color, -0.18));
-  g.addColorStop(0.3, color);
-  g.addColorStop(0.65, shade(color, 0.06));
-  g.addColorStop(1, shade(color, -0.22));
+/**
+ * Book spine: bookcloth colour with gold-foil bands and title (or dark ink on
+ * light-coloured books). Drawn twice: once for colour, once for the
+ * roughness/metalness mask so the foil reflects light like the real thing.
+ */
+export function spineTextures(title: string, color: string, thickness: number, height: number): SpineTextures {
+  const H = 1024;
+  const W = Math.max(64, Math.round((H * thickness) / height)); // keep the true aspect so letters are not squashed
+  const foil = luminance(color) < 0.45;
+  const [canvas, ctx] = makeCanvas(W, H);
+  const [ormCanvas, orm] = makeCanvas(W, H);
+
+  // subtle tonal variation, as real bookcloth is never perfectly flat
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, shade(color, -0.03));
+  g.addColorStop(0.5, color);
+  g.addColorStop(1, shade(color, -0.05));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
+  orm.fillStyle = 'rgb(0, 210, 0)'; // cloth: rough, non-metal
+  orm.fillRect(0, 0, W, H);
 
-  // faint cloth weave
-  ctx.globalAlpha = 0.06;
-  ctx.fillStyle = '#000';
-  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
-  ctx.globalAlpha = 1;
+  const ink = foil ? '#e2bd6a' : '#2b1d14';
+  const inkOrm = foil ? 'rgb(0, 85, 255)' : 'rgb(0, 150, 0)';
+  const paint = (draw: (c: CanvasRenderingContext2D) => void) => {
+    ctx.fillStyle = ink;
+    orm.fillStyle = inkOrm;
+    draw(ctx);
+    draw(orm);
+  };
 
-  const dark = luminance(color) > 0.5;
-  const accent = dark ? '#3b2a20' : '#ffe6a8';
-  ctx.fillStyle = accent;
-  for (const y of [H * 0.07, H * 0.93]) {
-    ctx.fillRect(0, y - 4, W, 3);
-    ctx.fillRect(0, y + 3, W, 1.5);
-  }
-
-  ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(Math.PI / 2);
-  const fontSize = Math.min(W * 0.48, 34);
-  ctx.font = `700 ${fontSize}px Fraunces, Georgia, serif`;
-  ctx.fillStyle = dark ? '#2b1d14' : '#fff8ec';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(fitText(ctx, title, H * 0.74), 0, 1);
-  ctx.restore();
-
-  return toTexture(canvas);
-}
-
-/** Page block seen from the top / fore-edge of a book. */
-export function pagesTexture() {
-  const [canvas, ctx] = makeCanvas(64, 256);
-  ctx.fillStyle = '#f6ecd8';
-  ctx.fillRect(0, 0, 64, 256);
-  ctx.fillStyle = 'rgba(120, 90, 60, 0.18)';
-  for (let x = 0; x < 64; x += 2) ctx.fillRect(x, 0, 1, 256);
-  return toTexture(canvas);
-}
-
-/** Honey-coloured wooden floor planks. */
-export function woodFloorTexture() {
-  const [canvas, ctx] = makeCanvas(1024, 1024);
-  const rand = mulberry32(7);
-  const planks = 8;
-  const pw = 1024 / planks;
-  const tones = ['#c98b4f', '#bf7f45', '#d39a5c', '#b8763f', '#cc9255'];
-  for (let i = 0; i < planks; i++) {
-    let y = -rand() * 400;
-    while (y < 1024) {
-      const len = 300 + rand() * 500;
-      ctx.fillStyle = tones[Math.floor(rand() * tones.length)];
-      ctx.fillRect(i * pw, y, pw, len);
-      // grain
-      ctx.strokeStyle = 'rgba(90, 50, 20, 0.16)';
-      ctx.lineWidth = 1.5;
-      for (let k = 0; k < 7; k++) {
-        const gx = i * pw + 6 + rand() * (pw - 12);
-        ctx.beginPath();
-        for (let yy = y; yy < y + len; yy += 8) ctx.lineTo(gx + Math.sin(yy * 0.02 + k) * 3, yy);
-        ctx.stroke();
-      }
-      ctx.fillStyle = 'rgba(60, 30, 10, 0.55)';
-      ctx.fillRect(i * pw, y, pw, 2);
-      y += len;
+  // head and tail bands
+  paint((c) => {
+    for (const y of [H * 0.065, H * 0.935]) {
+      c.fillRect(W * 0.08, y - 7, W * 0.84, 5);
+      c.fillRect(W * 0.08, y + 5, W * 0.84, 2.5);
     }
-    ctx.fillStyle = 'rgba(60, 30, 10, 0.5)';
-    ctx.fillRect(i * pw, 0, 2, 1024);
+  });
+
+  const fontSize = Math.min(W * 0.42, 52);
+  const font = `700 ${fontSize}px Fraunces, Georgia, serif`;
+  paint((c) => {
+    c.save();
+    c.translate(W / 2, H / 2);
+    c.rotate(Math.PI / 2);
+    c.font = font;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(fitText(c, title, H * 0.72), 0, 2);
+    c.restore();
+  });
+
+  return { map: toTexture(canvas), orm: toTexture(ormCanvas, false) };
+}
+
+/** Page block: cream paper with fine lines between the leaves. Returned as colour + bump. */
+export function pagesTextures() {
+  const [canvas, ctx] = makeCanvas(256, 64);
+  const [bumpCanvas, bump] = makeCanvas(256, 64);
+  ctx.fillStyle = '#f3e7cf';
+  ctx.fillRect(0, 0, 256, 64);
+  bump.fillStyle = '#fff';
+  bump.fillRect(0, 0, 256, 64);
+  const rand = mulberry32(21);
+  for (let x = 0; x < 256; x += 2) {
+    const a = 0.06 + rand() * 0.12;
+    ctx.fillStyle = `rgba(120, 90, 60, ${a})`;
+    ctx.fillRect(x, 0, 1, 64);
+    bump.fillStyle = `rgba(0, 0, 0, ${0.4 + rand() * 0.4})`;
+    bump.fillRect(x, 0, 1, 64);
   }
-  const tex = toTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(3, 3);
-  return tex;
+  return { map: toTexture(canvas), bump: toTexture(bumpCanvas, false) };
 }
 
 /** Light "cookie" projected by the sun spotlight: window panes plus leaf shadows. */
@@ -120,7 +114,7 @@ export function windowCookieTexture() {
   const [canvas, ctx] = makeCanvas(512, 512);
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, 512, 512);
-  ctx.filter = 'blur(5px)';
+  ctx.filter = 'blur(6px)';
   ctx.fillStyle = '#fff';
   const pane = 110;
   const gap = 14;
@@ -129,8 +123,8 @@ export function windowCookieTexture() {
   for (let c = 0; c < 2; c++) {
     for (let r = 0; r < 3; r++) ctx.fillRect(ox + c * (pane + gap), oy + r * (pane + gap), pane, pane);
   }
-  ctx.filter = 'blur(7px)';
-  ctx.fillStyle = '#000';
+  ctx.filter = 'blur(8px)';
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
   const rand = mulberry32(3);
   for (let i = 0; i < 26; i++) {
     ctx.beginPath();
@@ -140,50 +134,94 @@ export function windowCookieTexture() {
   return toTexture(canvas, false);
 }
 
-/** Bright sky seen through the window. */
-export function skyTexture() {
-  const [canvas, ctx] = makeCanvas(256, 384);
-  const g = ctx.createLinearGradient(0, 0, 0, 384);
-  g.addColorStop(0, '#6ec3ff');
-  g.addColorStop(0.6, '#c9ecff');
-  g.addColorStop(1, '#fff6dc');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 256, 384);
-  ctx.filter = 'blur(6px)';
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  for (const [x, y, r] of [[60, 70, 28], [95, 62, 34], [130, 76, 24], [190, 150, 20], [215, 145, 26]]) {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
+/** The bright garden view outside the window. */
+export function outdoorTexture() {
+  const [canvas, ctx] = makeCanvas(1024, 1024);
+  const sky = ctx.createLinearGradient(0, 0, 0, 1024);
+  sky.addColorStop(0, '#5fb6f2');
+  sky.addColorStop(0.55, '#bfe5fb');
+  sky.addColorStop(0.75, '#f6efd9');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 1024, 1024);
+  const rand = mulberry32(11);
+
+  ctx.filter = 'blur(10px)';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (let i = 0; i < 9; i++) {
+    const x = rand() * 1024;
+    const y = 80 + rand() * 260;
+    for (let k = 0; k < 5; k++) {
+      ctx.beginPath();
+      ctx.arc(x + k * 34 - 60, y + Math.sin(k) * 14, 30 + rand() * 30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // distant house facade
+  ctx.filter = 'blur(3px)';
+  ctx.fillStyle = '#f0d59a';
+  ctx.fillRect(560, 520, 300, 240);
+  ctx.fillStyle = '#8e5a43';
+  ctx.beginPath();
+  ctx.moveTo(540, 525);
+  ctx.lineTo(710, 420);
+  ctx.lineTo(880, 525);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  for (const [x, y] of [[600, 570], [700, 570], [790, 570]]) ctx.fillRect(x, y, 44, 60);
+  // trees and hedges, several depth layers
+  ctx.filter = 'blur(4px)';
+  const greens = ['#3f7f3a', '#4f9447', '#62a854', '#77b960'];
+  for (let layer = 0; layer < 4; layer++) {
+    ctx.fillStyle = greens[layer];
+    for (let i = 0; i < 22; i++) {
+      ctx.beginPath();
+      ctx.arc(rand() * 1100 - 40, 700 + layer * 70 + rand() * 50, 40 + rand() * 60, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.filter = 'blur(2px)';
-  const greens = ['#5fae5a', '#4a9a4f', '#7cc36a'];
-  const rand = mulberry32(11);
-  for (let i = 0; i < 18; i++) {
-    ctx.fillStyle = greens[i % 3];
+  const flowers = ['#ff6f91', '#ffd166', '#ff8c42', '#f72585', '#fff1e6'];
+  for (let i = 0; i < 160; i++) {
+    ctx.fillStyle = flowers[i % flowers.length];
     ctx.beginPath();
-    ctx.arc(rand() * 256, 330 + rand() * 40, 25 + rand() * 25, 0, Math.PI * 2);
+    ctx.arc(rand() * 1024, 900 + rand() * 120, 4 + rand() * 5, 0, Math.PI * 2);
     ctx.fill();
   }
   return toTexture(canvas);
 }
 
-/** Teal curtain fabric with golden leaf print (like the reference). */
-export function curtainTexture() {
-  const [canvas, ctx] = makeCanvas(512, 1024);
-  ctx.fillStyle = '#12676d';
-  ctx.fillRect(0, 0, 512, 1024);
+/** Printed leaf pattern for the teal velvet curtains. */
+export function curtainPrintTexture() {
+  const [canvas, ctx] = makeCanvas(1024, 1024);
+  ctx.fillStyle = '#0f5c63';
+  ctx.fillRect(0, 0, 1024, 1024);
   const rand = mulberry32(5);
-  for (let i = 0; i < 140; i++) {
-    const x = rand() * 512;
+  for (let i = 0; i < 70; i++) {
+    const x = rand() * 1024;
     const y = rand() * 1024;
+    const len = 60 + rand() * 70;
+    const lean = -0.5 + rand();
+    // a fern-like frond: stem plus paired leaflets
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(-0.6 + rand() * 1.2);
-    ctx.fillStyle = rand() > 0.45 ? 'rgba(232, 190, 96, 0.75)' : 'rgba(46, 176, 168, 0.8)';
+    ctx.rotate(lean);
+    const gold = rand() > 0.4;
+    ctx.strokeStyle = gold ? 'rgba(214, 170, 82, 0.85)' : 'rgba(64, 170, 160, 0.85)';
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(0, 0, 7, 26, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -len);
+    ctx.stroke();
+    for (let k = 1; k < 7; k++) {
+      const py = (-len * k) / 7;
+      const s = (1 - k / 8) * 14;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(side * s * 0.7, py, s, s * 0.35, side * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
   const tex = toTexture(canvas);
@@ -191,60 +229,89 @@ export function curtainTexture() {
   return tex;
 }
 
-/** Woven rug with colourful stripes. */
+/** Woven flat-weave rug with colourful vintage borders. */
 export function rugTexture() {
-  const [canvas, ctx] = makeCanvas(512, 320);
-  ctx.fillStyle = '#f4e4c9';
-  ctx.fillRect(0, 0, 512, 320);
-  const stripes = ['#ff6f59', '#f2b134', '#2155c4', '#2ec4b6'];
-  stripes.forEach((c, i) => {
+  const [canvas, ctx] = makeCanvas(1024, 640);
+  ctx.fillStyle = '#efe0c4';
+  ctx.fillRect(0, 0, 1024, 640);
+  const bands = ['#d9563f', '#e5a630', '#2a5bc4', '#2ba59a', '#d9563f'];
+  bands.forEach((c, i) => {
     ctx.strokeStyle = c;
-    ctx.lineWidth = 8;
-    const m = 18 + i * 14;
-    ctx.strokeRect(m, m, 512 - m * 2, 320 - m * 2);
+    ctx.lineWidth = 12;
+    const m = 34 + i * 24;
+    ctx.strokeRect(m, m, 1024 - m * 2, 640 - m * 2);
   });
-  ctx.fillStyle = 'rgba(0,0,0,0.05)';
-  for (let y = 0; y < 320; y += 4) ctx.fillRect(0, y, 512, 1);
-  // centre diamonds
-  for (let i = 0; i < 5; i++) {
-    ctx.fillStyle = stripes[i % stripes.length];
+  // central medallion of diamonds
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = bands[i % 4];
     ctx.save();
-    ctx.translate(136 + i * 60, 160);
+    ctx.translate(512 + (i - 3) * 82, 320);
     ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-14, -14, 28, 28);
+    ctx.fillRect(-22, -22, 44, 44);
+    ctx.fillStyle = '#efe0c4';
+    ctx.fillRect(-9, -9, 18, 18);
     ctx.restore();
+  }
+  // yarn irregularity
+  const rand = mulberry32(8);
+  for (let i = 0; i < 4000; i++) {
+    ctx.fillStyle = `rgba(${rand() > 0.5 ? '255,255,255' : '60,40,20'}, ${rand() * 0.06})`;
+    ctx.fillRect(rand() * 1024, rand() * 640, 3 + rand() * 6, 1.5);
   }
   return toTexture(canvas);
 }
 
-/** Small botanical print for the picture frame. */
-export function artTexture() {
-  const [canvas, ctx] = makeCanvas(256, 320);
-  ctx.fillStyle = '#f7efe0';
-  ctx.fillRect(0, 0, 256, 320);
-  ctx.strokeStyle = '#3f7d4e';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(128, 290);
-  ctx.bezierCurveTo(120, 220, 140, 120, 126, 40);
-  ctx.stroke();
-  ctx.fillStyle = '#4f9a5e';
+/**
+ * Pothos leaf in leaf-UV space (0..1 across the leaf's bounding box):
+ * colour with golden variegation, plus a bump map for the midrib and veins.
+ */
+export function leafTextures() {
+  const S = 256;
+  const [canvas, ctx] = makeCanvas(S, S);
+  const [bumpCanvas, bump] = makeCanvas(S, S);
+  const base = ctx.createLinearGradient(0, S, 0, 0);
+  base.addColorStop(0, '#3f8a3a');
+  base.addColorStop(1, '#4f9c43');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, S, S);
+  const rand = mulberry32(31);
+  ctx.filter = 'blur(3px)';
+  ctx.strokeStyle = 'rgba(214, 222, 120, 0.55)';
   for (let i = 0; i < 9; i++) {
-    const y = 260 - i * 24;
-    const side = i % 2 ? 1 : -1;
-    ctx.save();
-    ctx.translate(128 + side * 4, y);
-    ctx.rotate(side * 0.9);
+    ctx.lineWidth = 2 + rand() * 5;
     ctx.beginPath();
-    ctx.ellipse(0, -22, 10, 24 - i, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    const x = S / 2 + (rand() - 0.5) * S * 0.6;
+    ctx.moveTo(S / 2, S * 0.95);
+    ctx.quadraticCurveTo(x, S * 0.5, x + (rand() - 0.5) * 60, S * 0.1);
+    ctx.stroke();
   }
-  ctx.fillStyle = '#ff8fab';
-  ctx.beginPath();
-  ctx.arc(126, 38, 12, 0, Math.PI * 2);
-  ctx.fill();
-  return toTexture(canvas);
+  ctx.filter = 'none';
+
+  bump.fillStyle = '#808080';
+  bump.fillRect(0, 0, S, S);
+  const veins = (c: CanvasRenderingContext2D, colour: string) => {
+    c.strokeStyle = colour;
+    c.lineCap = 'round';
+    c.lineWidth = 5;
+    c.beginPath();
+    c.moveTo(S / 2, S);
+    c.lineTo(S / 2, 0);
+    c.stroke();
+    c.lineWidth = 2.5;
+    for (let k = 1; k < 7; k++) {
+      const y = S - (k * S) / 7.5;
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.moveTo(S / 2, y);
+        c.quadraticCurveTo(S / 2 + side * S * 0.2, y - 18, S / 2 + side * S * 0.42, y - 40);
+        c.stroke();
+      }
+    }
+  };
+  veins(ctx, 'rgba(190, 220, 140, 0.45)');
+  bump.filter = 'blur(1.5px)';
+  veins(bump, '#3a3a3a');
+  return { map: toTexture(canvas), bump: toTexture(bumpCanvas, false) };
 }
 
 /** Radial "item get!" rays used behind a newly added book. */
@@ -270,5 +337,24 @@ export function raysTexture() {
     ctx.lineTo(10, 0);
     ctx.fill();
   }
+  return toTexture(canvas);
+}
+
+/** Soft vertical gradient used for the faint sunbeam shaft. */
+export function beamTexture() {
+  const [canvas, ctx] = makeCanvas(64, 256);
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.3, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 256);
+  const h = ctx.createLinearGradient(0, 0, 64, 0);
+  h.addColorStop(0, 'rgba(0,0,0,1)');
+  h.addColorStop(0.5, 'rgba(0,0,0,0)');
+  h.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = h;
+  ctx.fillRect(0, 0, 64, 256);
   return toTexture(canvas);
 }

@@ -114,6 +114,19 @@ button {
   transition: transform 0.1s ease;
 }
 
+.top-bar__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.icon-button--text {
+  width: auto;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
 .icon-button:active {
   transform: translateY(3px);
   box-shadow: 0 1px 0 #e2c9a8;
@@ -523,6 +536,48 @@ button {
   color: var(--ink);
   font: inherit;
   text-align: center;
+}
+
+/* ---------- loading ---------- */
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #efe0c8;
+  transition: opacity 0.7s ease;
+}
+
+.loading--done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.loading__bar {
+  width: 220px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(59, 42, 32, 0.12);
+  overflow: hidden;
+}
+
+.loading__bar div {
+  height: 100%;
+  background: var(--blue);
+  border-radius: inherit;
+  transition: width 0.3s ease;
 }
 
 /* ---------- keyframes ---------- */

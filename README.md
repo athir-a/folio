@@ -20,10 +20,17 @@ npm run build    # type-check + production build
 | ---------------------------- | -------------------------------------- |
 | App UI and state             | React, TypeScript, Vite, Zustand       |
 | 3D room, shelf, animations   | Three.js, React Three Fiber, drei      |
-| Glow / vignette              | @react-three/postprocessing            |
+| Ambient occlusion, tone mapping, bloom | @react-three/postprocessing (N8AO) |
+| Materials and models         | CC0 scans from [Poly Haven](https://polyhaven.com) |
 | Reading PDFs                 | PDF.js (`pdfjs-dist`)                  |
 | Local storage                | IndexedDB (via `idb`)                  |
 | Hand gestures *(planned)*    | MediaPipe and OpenCV                   |
+
+## Graphics quality
+
+The **HQ / Fast** button in the top-right switches between the full look
+(ambient occlusion, floor reflections, high-resolution soft shadows, high pixel
+density) and a lighter mode for laptops and phones. The choice is remembered.
 
 ## Project structure
 
@@ -33,8 +40,9 @@ src/
 ├── App.tsx                  Puts the 3D scene, HUD and reader together
 │
 ├── state/
-│   └── libraryStore.ts      The single source of truth (Zustand). All actions live
-│                            here: addFiles, openBook, closeBook, setLastPage, …
+│   ├── libraryStore.ts      The single source of truth (Zustand). All actions live
+│   │                        here: addFiles, openBook, closeBook, setLastPage, …
+│   └── settingsStore.ts     Viewer preferences: sound on/off, graphics quality
 │
 ├── db/
 │   └── libraryDb.ts         IndexedDB: book metadata, PDF files, cover images
@@ -48,16 +56,18 @@ src/
 │   │   ├── layout.ts        Shelf dimensions and where each book goes
 │   │   ├── Bookshelf.tsx    The blue bookcase (wobbles when a book lands)
 │   │   ├── Books.tsx        Maps library books onto shelf slots
-│   │   └── Book.tsx         One book: entrance animation, hover, fly-to-reader
+│   │   ├── Book.tsx         One book's behaviour: entrance animation, hover, fly-to-reader
+│   │   └── BookModel.tsx    One book's looks: boards, page block, rounded foil-stamped spine
 │   ├── room/
-│   │   ├── Room.tsx         Walls, wooden floor, window, curtains, rug, picture
-│   │   ├── Plants.tsx       Fiddle-leaf fig and the trailing pothos
-│   │   ├── Decor.tsx        Floor lamp, candle, trinkets
-│   │   └── Lighting.tsx     Sunlight (with window-pane shadows) and dust motes
+│   │   ├── Room.tsx         Plaster wall, window, skirting, oak floor, rug, curtains, picture
+│   │   ├── Plants.tsx       Potted plant and the trailing pothos
+│   │   ├── Decor.tsx        Floor lamp, candle, vase
+│   │   └── Lighting.tsx     HDRI, sun and window-pane shadows, window light, sunbeam
 │   ├── effects/
 │   │   └── LandingBursts.tsx  Confetti stars and shockwave when a book lands
 │   └── utils/
-│       ├── textures.ts      Canvas-painted textures (spines, wood, fabric, …)
+│       ├── assets.ts        Paths and loaders for the textures/models in public/assets
+│       ├── textures.ts      Canvas-painted textures (book spines, curtain print, rug, …)
 │       └── easing.ts        Easing curves for the animations
 │
 ├── ui/                      Regular HTML/CSS on top of the canvas
@@ -67,6 +77,7 @@ src/
 ├── lib/                     Small, framework-free helpers (colour, random, sound effects)
 └── styles/
     └── global.css
+public/assets/               Scanned PBR textures, glTF models and the HDRI (CC0, see CREDITS.md)
 docs/reference/              Mood-board images the room is based on
 ```
 

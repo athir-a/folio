@@ -1,25 +1,84 @@
-import { useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
-import type * as THREE from 'three';
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { useLibrary } from '../../state/libraryStore';
-import { COMPARTMENT_HEIGHT, SHELF, rowFloorY } from './layout';
+import { useSurface } from '../utils/assets';
+import { SHELF, rowFloorY } from './layout';
 
-const BLUE = '#2b64e3';
-const BLUE_BACK = '#3a6fe0';
+const COBALT = '#2a5fd6';
+const COBALT_BACK = '#3567d8';
+const CROWN = 0.03; // how far the crown moulding projects
+const LIP = 0.018; // extra depth of each shelf's front edge band
 
-function Board({ size, position, color = BLUE }: { size: [number, number, number]; position: [number, number, number]; color?: string }) {
-  return (
-    <mesh position={position} castShadow receiveShadow>
-      <boxGeometry args={size} />
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.12} roughness={0.42} metalness={0.02} />
-    </mesh>
-  );
+/**
+ * Lacquered cobalt paint over oak: the wood grain still reads faintly through
+ * the paint (normal map) and a clear coat gives the soft satin highlight.
+ */
+function usePaintMaterials() {
+  const vertical = useSurface('oakGrain', [1, 2]);
+  const horizontal = useSurface('oakGrain', [2, 1]);
+  return useMemo(() => {
+    horizontal.normalMap.rotation = Math.PI / 2;
+    const make = (color: string, maps: typeof vertical) =>
+      new THREE.MeshPhysicalMaterial({
+        color,
+        // satin paint: a constant roughness, because the raw-wood roughness map made
+        // the paint mirror-like at grazing angles
+        roughness: 0.62,
+        normalMap: maps.normalMap,
+        normalScale: new THREE.Vector2(0.18, 0.18),
+        clearcoat: 0.12,
+        clearcoatRoughness: 0.5,
+        envMapIntensity: 0.35,
+      });
+    return {
+      vertical: make(COBALT, vertical),
+      horizontal: make(COBALT, horizontal),
+      back: make(COBALT_BACK, vertical),
+    };
+  }, [vertical, horizontal]);
+}
+
+/** Concave cove profile, extruded to make the crown moulding. Shape x = outward, y = down. */
+function crownGeometry(length: number) {
+  const s = new THREE.Shape();
+  s.moveTo(0, 0);
+  s.lineTo(CROWN, 0);
+  s.lineTo(CROWN, -0.006);
+  s.quadraticCurveTo(0.006, -0.008, 0.003, -0.038);
+  s.lineTo(0, -0.04);
+  s.closePath();
+  return new THREE.ExtrudeGeometry(s, { depth: length, bevelEnabled: false, curveSegments: 12 });
+}
+
+function Part({ geometry, material, position }: { geometry: THREE.BufferGeometry; material: THREE.Material; position: [number, number, number] }) {
+  return <mesh geometry={geometry} material={material} position={position} castShadow receiveShadow />;
 }
 
 /** The cobalt-blue bookcase. Children (the books) wobble along with it when a book lands. */
 export function Bookshelf({ children }: { children?: ReactNode }) {
   const group = useRef<THREE.Group>(null!);
-  const { width: W, height: H, depth: D, side, board, base } = SHELF;
+  const paint = usePaintMaterials();
+  const { width: W, height: H, depth: D, side, board, base, rows } = SHELF;
+  const innerW = W - side * 2;
+
+  const parts = useMemo(() => {
+    const backPlanks = 9;
+    const plankW = innerW / backPlanks;
+    return {
+      side: new RoundedBoxGeometry(side, H, D, 3, 0.006),
+      top: new RoundedBoxGeometry(W + CROWN * 2 + 0.01, board, D + CROWN + 0.008, 3, 0.008),
+      // spans from the back planks to the front lip
+      shelf: new RoundedBoxGeometry(innerW, board, D - LIP - 0.012, 2, 0.004),
+      lip: new RoundedBoxGeometry(innerW, board + 0.014, LIP, 3, 0.005),
+      plank: new RoundedBoxGeometry(plankW - 0.0025, H - base - board, 0.012, 2, 0.003),
+      plankX: Array.from({ length: backPlanks }, (_, i) => -innerW / 2 + plankW * (i + 0.5)),
+      plinth: new RoundedBoxGeometry(innerW, base, 0.022, 2, 0.004),
+      crownFront: crownGeometry(W + CROWN * 2),
+      crownSide: crownGeometry(D),
+    };
+  }, [W, H, D, side, board, base, innerW]);
 
   useFrame(() => {
     const since = (performance.now() - useLibrary.getState().shakeAt) / 1000;
@@ -33,30 +92,37 @@ export function Bookshelf({ children }: { children?: ReactNode }) {
     }
   });
 
-  const innerW = W - side * 2;
+  const topY = H - board / 2;
   return (
     <group position={SHELF.position}>
       <group ref={group}>
-        {/* sides */}
-        <Board size={[side, H, D]} position={[-W / 2 + side / 2, H / 2, 0]} />
-        <Board size={[side, H, D]} position={[W / 2 - side / 2, H / 2, 0]} />
-        {/* top with a small overhang */}
-        <Board size={[W + 0.04, board, D + 0.03]} position={[0, H - board / 2, 0.005]} />
-        {/* back panel */}
-        <Board size={[innerW, H - base, 0.015]} position={[0, (H + base) / 2, -D / 2 + 0.0075]} color={BLUE_BACK} />
-        {/* kick plate */}
-        <Board size={[innerW, base, 0.02]} position={[0, base / 2, D / 2 - 0.03]} />
-        {/* shelves */}
-        {Array.from({ length: SHELF.rows }, (_, row) => (
-          <Board key={row} size={[innerW, board, D - 0.02]} position={[0, rowFloorY(row) - board / 2, 0.005]} />
+        <Part geometry={parts.side} material={paint.vertical} position={[-W / 2 + side / 2, H / 2, 0]} />
+        <Part geometry={parts.side} material={paint.vertical} position={[W / 2 - side / 2, H / 2, 0]} />
+        <Part geometry={parts.top} material={paint.horizontal} position={[0, topY + 0.002, (CROWN + 0.008) / 2]} />
+
+        {/* crown moulding under the top's overhang: front, then each side */}
+        <mesh geometry={parts.crownFront} material={paint.horizontal} rotation={[0, -Math.PI / 2, 0]} position={[W / 2 + CROWN, H - board, D / 2]} castShadow receiveShadow />
+        <mesh geometry={parts.crownSide} material={paint.vertical} position={[W / 2, H - board, -D / 2]} castShadow receiveShadow />
+        <mesh geometry={parts.crownSide} material={paint.vertical} rotation={[0, Math.PI, 0]} position={[-W / 2, H - board, D / 2]} castShadow receiveShadow />
+
+        {/* tongue-and-groove back panel */}
+        {parts.plankX.map((x, i) => (
+          <Part key={i} geometry={parts.plank} material={paint.back} position={[x, (H + base - board) / 2, -D / 2 + 0.008]} />
         ))}
-        {/* soft inner shadowing so empty compartments still read as depth */}
-        {Array.from({ length: SHELF.rows }, (_, row) => (
-          <mesh key={`shade-${row}`} position={[0, rowFloorY(row) + COMPARTMENT_HEIGHT - 0.004, 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[innerW, D - 0.02]} />
-            <meshBasicMaterial color="#000" transparent opacity={0.08} depthWrite={false} />
-          </mesh>
-        ))}
+
+        {/* shelves with a thicker front edge band, like real furniture */}
+        {Array.from({ length: rows }, (_, row) => {
+          const y = rowFloorY(row) - board / 2;
+          return (
+            <group key={row}>
+              <Part geometry={parts.shelf} material={paint.horizontal} position={[0, y, (0.016 - LIP) / 2]} />
+              <Part geometry={parts.lip} material={paint.horizontal} position={[0, y - 0.007, D / 2 - LIP / 2]} />
+            </group>
+          );
+        })}
+
+        {/* recessed plinth */}
+        <Part geometry={parts.plinth} material={paint.horizontal} position={[0, base / 2, D / 2 - 0.03]} />
         {children}
       </group>
     </group>

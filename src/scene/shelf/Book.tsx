@@ -3,10 +3,10 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import type { BookRecord } from '../../db/libraryDb';
-import { shade } from '../../lib/color';
 import { useLibrary } from '../../state/libraryStore';
 import { easeInOutCubic, easeInQuad, easeOutBack, easeOutCubic, phase } from '../utils/easing';
-import { pagesTexture, raysTexture, spineTexture } from '../utils/textures';
+import { raysTexture } from '../utils/textures';
+import { BookModel } from './BookModel';
 import type { Slot } from './layout';
 
 /** Total length of the "new book" entrance animation, in seconds. */
@@ -15,7 +15,6 @@ const LAND_AT = 0.86; // fraction of the animation when the book hits the shelf
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
-const sharedPages = { tex: null as THREE.Texture | null };
 const sharedRays = { tex: null as THREE.Texture | null };
 
 interface EnterState {
@@ -58,58 +57,6 @@ export function Book({ book, slot, coverUrl }: { book: BookRecord; slot: Slot; c
 
   const slotPos = useMemo(() => new THREE.Vector3(...slot.position), [slot.position]);
   const slotQ = useMemo(() => new THREE.Quaternion().setFromEuler(new THREE.Euler(...slot.rotation)), [slot.rotation]);
-
-  // Box faces: +x front cover, -x back cover, +y/-y page tops, +z spine, -z fore-edge.
-  const materials = useMemo(() => {
-    sharedPages.tex ??= pagesTexture();
-    const cloth = { roughness: 0.62 };
-    return [
-      new THREE.MeshStandardMaterial({ color: book.color, ...cloth }),
-      new THREE.MeshStandardMaterial({ color: shade(book.color, -0.05), ...cloth }),
-      new THREE.MeshStandardMaterial({ map: sharedPages.tex, roughness: 0.9 }),
-      new THREE.MeshStandardMaterial({ map: sharedPages.tex, roughness: 0.9 }),
-      new THREE.MeshStandardMaterial({ map: spineTexture(book.title, book.color, thickness, height), ...cloth }),
-      new THREE.MeshStandardMaterial({ map: sharedPages.tex, roughness: 0.9 }),
-    ];
-  }, [book.color, book.title, thickness, height]);
-
-  useEffect(
-    () => () => {
-      materials.forEach((m) => {
-        if (m.map && m.map !== sharedPages.tex) m.map.dispose();
-        m.dispose();
-      });
-    },
-    [materials],
-  );
-
-  // Spine titles use Fraunces; repaint once the web font has arrived.
-  useEffect(() => {
-    let cancelled = false;
-    document.fonts?.load('700 20px Fraunces').then(() => {
-      if (cancelled) return;
-      materials[4].map?.dispose();
-      materials[4].map = spineTexture(book.title, book.color, thickness, height);
-      materials[4].needsUpdate = true;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [materials, book.title, book.color, thickness, height]);
-
-  useEffect(() => {
-    if (!coverUrl) return;
-    const loader = new THREE.TextureLoader();
-    let tex: THREE.Texture | null = null;
-    loader.load(coverUrl, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      tex = t;
-      materials[0].map = t;
-      materials[0].color.set('#ffffff');
-      materials[0].needsUpdate = true;
-    });
-    return () => tex?.dispose();
-  }, [coverUrl, materials]);
 
   const rays = useMemo(() => (sharedRays.tex ??= raysTexture()), []);
 
@@ -240,8 +187,11 @@ export function Book({ book, slot, coverUrl }: { book: BookRecord; slot: Slot; c
   return (
     <>
       <group ref={group}>
-        <mesh material={materials} castShadow receiveShadow onPointerOver={onOver} onPointerOut={onOut} onClick={onClick}>
+        <BookModel book={book} size={slot.size} coverUrl={coverUrl} />
+        {/* one invisible box for pointer events, so hovering doesn't flicker between the book's parts */}
+        <mesh onPointerOver={onOver} onPointerOut={onOut} onClick={onClick}>
           <boxGeometry args={[thickness, height, depth]} />
+          <meshBasicMaterial colorWrite={false} depthWrite={false} />
         </mesh>
         {hovered && canInteract && (
           <Html position={[0, height / 2 + 0.06, depth / 2]} center style={{ pointerEvents: 'none' }}>

@@ -3,6 +3,7 @@ import * as db from '../db/libraryDb';
 import type { BookRecord } from '../db/libraryDb';
 import { extractBookInfo } from '../pdf/pdf';
 import { playChime, playPop } from '../lib/sfx';
+import { useSettings } from './settingsStore';
 
 /**
  * Central library state. UI, the 3D scene and (later) gesture input all call
@@ -35,7 +36,6 @@ interface LibraryState {
   bursts: Burst[];
   shakeAt: number;
   toast: Toast | null;
-  muted: boolean;
 
   init: () => Promise<void>;
   addFiles: (files: FileList | File[]) => Promise<void>;
@@ -48,7 +48,6 @@ interface LibraryState {
   removeBurst: (id: number) => void;
   showToast: (toast: Omit<Toast, 'key'>) => void;
   dismissToast: () => void;
-  toggleMute: () => void;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -57,13 +56,7 @@ let burstId = 0;
 let toastKey = 0;
 const pageWrites = new Map<string, ReturnType<typeof setTimeout>>();
 
-function readMuted() {
-  try {
-    return localStorage.getItem('cozy-library:muted') === '1';
-  } catch {
-    return false;
-  }
-}
+const muted = () => useSettings.getState().muted;
 
 export const useLibrary = create<LibraryState>((set, get) => ({
   books: [],
@@ -76,7 +69,6 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   bursts: [],
   shakeAt: -Infinity,
   toast: null,
-  muted: readMuted(),
 
   init() {
     initPromise ??= (async () => {
@@ -127,7 +119,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           coverUrls: coverUrl ? { ...s.coverUrls, [record.id]: coverUrl } : s.coverUrls,
           entering: { ...s.entering, [record.id]: true },
         }));
-        if (!get().muted) playPop();
+        if (!muted()) playPop();
       } catch (err) {
         console.error(err);
         get().showToast({ kind: 'error', title: 'Could not read that PDF', subtitle: file.name });
@@ -183,7 +175,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   land(id, position, color) {
     const s = get();
     const index = s.books.findIndex((b) => b.id === id);
-    if (!s.muted) playChime();
+    if (!muted()) playChime();
     set({
       bursts: [...s.bursts, { id: ++burstId, position, color }],
       shakeAt: performance.now(),
@@ -216,15 +208,5 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   dismissToast() {
     set({ toast: null });
-  },
-
-  toggleMute() {
-    const muted = !get().muted;
-    try {
-      localStorage.setItem('cozy-library:muted', muted ? '1' : '0');
-    } catch {
-      /* storage unavailable */
-    }
-    set({ muted });
   },
 }));
