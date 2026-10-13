@@ -1,31 +1,22 @@
 import { useMemo } from 'react';
-import { useGLTF, useTexture } from '@react-three/drei';
+import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 
 /**
  * Paths to the CC0 assets in public/assets (see public/assets/CREDITS.md), and
- * hooks that load them with the right colour space, tiling and filtering.
+ * a hook that loads them with the right colour space, tiling and filtering.
  */
 
 const BASE = `${import.meta.env.BASE_URL}assets`;
 
-export const HDRI = `${BASE}/hdri/reading_room_1k.hdr`;
-
-export const MODELS = {
-  pottedPlant: `${BASE}/models/potted_plant_01/potted_plant_01.gltf`,
-  clayPlanter: `${BASE}/models/planter_pot_clay/planter_pot_clay.gltf`,
-  pictureFrame: `${BASE}/models/fancy_picture_frame_01/fancy_picture_frame_01.gltf`,
-  vase: `${BASE}/models/ceramic_vase_02/ceramic_vase_02.gltf`,
-};
-
 /** Texture sets; `colour: false` means we only use the surface detail (normal + roughness). */
 const SURFACES = {
+  walnut: { id: 'american_walnut_veneer', colour: true },
   oakFloor: { id: 'wood_floor', colour: true },
-  plaster: { id: 'beige_wall_001', colour: false }, // the scan is taupe; we paint it cream ourselves
+  plaster: { id: 'beige_wall_001', colour: false }, // the scan is taupe; we pick the colour ourselves
   velvet: { id: 'velour_velvet', colour: false },
   linen: { id: 'rough_linen', colour: false },
   wool: { id: 'wool_boucle', colour: false },
-  oakGrain: { id: 'oak_veneer_01', colour: false },
 } as const;
 
 export type SurfaceName = keyof typeof SURFACES;
@@ -36,15 +27,15 @@ export interface SurfaceMaps {
   roughnessMap: THREE.Texture;
 }
 
+const url = (id: string, map: string) => `${BASE}/textures/${id}/${map}.jpg`;
+
 /**
  * Loads a PBR texture set. `repeat` is how many times the texture tiles across
  * the surface's UV space. Each call gets its own clones so tiling stays independent.
  */
 export function useSurface(name: SurfaceName, repeat: [number, number] = [1, 1]): SurfaceMaps {
   const { id, colour } = SURFACES[name];
-  const urls = colour
-    ? [`${BASE}/textures/${id}/diff.jpg`, `${BASE}/textures/${id}/nor.jpg`, `${BASE}/textures/${id}/rough.jpg`]
-    : [`${BASE}/textures/${id}/nor.jpg`, `${BASE}/textures/${id}/rough.jpg`];
+  const urls = colour ? [url(id, 'diff'), url(id, 'nor'), url(id, 'rough')] : [url(id, 'nor'), url(id, 'rough')];
   const loaded = useTexture(urls);
 
   return useMemo(() => {
@@ -65,25 +56,9 @@ export function useSurface(name: SurfaceName, repeat: [number, number] = [1, 1])
 }
 
 export function preloadAssets() {
-  Object.values(MODELS).forEach((url) => useGLTF.preload(url));
   Object.values(SURFACES).forEach(({ id, colour }) => {
-    if (colour) useTexture.preload(`${BASE}/textures/${id}/diff.jpg`);
-    useTexture.preload(`${BASE}/textures/${id}/nor.jpg`);
-    useTexture.preload(`${BASE}/textures/${id}/rough.jpg`);
+    if (colour) useTexture.preload(url(id, 'diff'));
+    useTexture.preload(url(id, 'nor'));
+    useTexture.preload(url(id, 'rough'));
   });
-}
-
-/** Clones a loaded glTF scene and makes every mesh cast and receive shadows. */
-export function useModel(url: string) {
-  const { scene } = useGLTF(url);
-  return useMemo(() => {
-    const clone = scene.clone(true);
-    clone.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
-    return clone;
-  }, [scene]);
 }

@@ -1,9 +1,10 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { COZY_PALETTE } from '../../lib/color';
 import { useLibrary, type Burst } from '../../state/libraryStore';
 
+/** Golden stardust with a few moonlit blue sparks, matching the hall. */
+const STARDUST = ['#ffd88a', '#fff1c9', '#f3c162', '#ffe6a8', '#a9c4ff'];
 const COUNT = 42;
 const LIFE = 1.4;
 const GRAVITY = 3.2;
@@ -21,7 +22,7 @@ function starGeometry() {
 
 const dummy = new THREE.Object3D();
 
-/** Confetti stars plus a shockwave ring where a new book lands. */
+/** A puff of stardust and a soft golden ring where a new book lands. */
 function LandingBurst({ burst }: { burst: Burst }) {
   const stars = useRef<THREE.InstancedMesh>(null!);
   const ring = useRef<THREE.Mesh>(null!);
@@ -40,7 +41,7 @@ function LandingBurst({ burst }: { burst: Burst }) {
   useLayoutEffect(() => {
     const color = new THREE.Color();
     particles.forEach((_, i) => {
-      color.set(i % 4 === 0 ? burst.color : COZY_PALETTE[i % COZY_PALETTE.length]);
+      color.set(i % 6 === 0 ? burst.color : STARDUST[i % STARDUST.length]);
       stars.current.setColorAt(i, color.multiplyScalar(1.6)); // > 1 so it blooms
     });
     stars.current.instanceColor!.needsUpdate = true;
@@ -80,7 +81,7 @@ function LandingBurst({ burst }: { burst: Burst }) {
       </instancedMesh>
       <mesh ref={ring}>
         <ringGeometry args={[0.8, 1, 48]} />
-        <meshBasicMaterial color="#fff2c4" transparent toneMapped={false} depthWrite={false} />
+        <meshBasicMaterial color={[2, 1.7, 1.1]} transparent depthWrite={false} />
       </mesh>
     </>
   );

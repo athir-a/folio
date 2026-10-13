@@ -6,36 +6,30 @@ import { useLibrary } from '../../state/libraryStore';
 import { useSurface } from '../utils/assets';
 import { SHELF, rowFloorY } from './layout';
 
-const COBALT = '#2a5fd6';
-const COBALT_BACK = '#3567d8';
 const CROWN = 0.03; // how far the crown moulding projects
 const LIP = 0.018; // extra depth of each shelf's front edge band
 
 /**
- * Lacquered cobalt paint over oak: the wood grain still reads faintly through
- * the paint (normal map) and a clear coat gives the soft satin highlight.
+ * Polished walnut, matching the hall's bookcases: grain runs along each piece
+ * (vertical on uprights, horizontal on shelves) under a soft clear coat. The
+ * back panel is a shade darker so books stand out against it.
  */
-function usePaintMaterials() {
-  const vertical = useSurface('oakGrain', [1, 2]);
-  const horizontal = useSurface('oakGrain', [2, 1]);
+function useWoodMaterials() {
+  const vertical = useSurface('walnut', [1, 2]);
+  const horizontal = useSurface('walnut', [2, 1]);
   return useMemo(() => {
-    horizontal.normalMap.rotation = Math.PI / 2;
+    // the scan's grain runs horizontally, so it is the uprights that need turning
+    for (const t of [vertical.map!, vertical.normalMap, vertical.roughnessMap]) {
+      t.center.set(0.5, 0.5);
+      t.rotation = Math.PI / 2;
+    }
     const make = (color: string, maps: typeof vertical) =>
-      new THREE.MeshPhysicalMaterial({
-        color,
-        // satin paint: a constant roughness, because the raw-wood roughness map made
-        // the paint mirror-like at grazing angles
-        roughness: 0.62,
-        normalMap: maps.normalMap,
-        normalScale: new THREE.Vector2(0.18, 0.18),
-        clearcoat: 0.12,
-        clearcoatRoughness: 0.5,
-        envMapIntensity: 0.35,
-      });
+      new THREE.MeshPhysicalMaterial({ ...maps, color, roughness: 0.85, clearcoat: 0.4, clearcoatRoughness: 0.3 });
     return {
-      vertical: make(COBALT, vertical),
-      horizontal: make(COBALT, horizontal),
-      back: make(COBALT_BACK, vertical),
+      vertical: make('#d0915f', vertical),
+      horizontal: make('#d0915f', horizontal),
+      back: make('#8a5636', vertical),
+      brass: new THREE.MeshPhysicalMaterial({ color: '#c9a052', metalness: 1, roughness: 0.3 }),
     };
   }, [vertical, horizontal]);
 }
@@ -56,10 +50,10 @@ function Part({ geometry, material, position }: { geometry: THREE.BufferGeometry
   return <mesh geometry={geometry} material={material} position={position} castShadow receiveShadow />;
 }
 
-/** The cobalt-blue bookcase. Children (the books) wobble along with it when a book lands. */
+/** The visitor's walnut bookcase. Children (the books) wobble along with it when a book lands. */
 export function Bookshelf({ children }: { children?: ReactNode }) {
   const group = useRef<THREE.Group>(null!);
-  const paint = usePaintMaterials();
+  const paint = useWoodMaterials();
   const { width: W, height: H, depth: D, side, board, base, rows } = SHELF;
   const innerW = W - side * 2;
 
@@ -94,7 +88,7 @@ export function Bookshelf({ children }: { children?: ReactNode }) {
 
   const topY = H - board / 2;
   return (
-    <group position={SHELF.position}>
+    <group position={SHELF.position} rotation={[0, SHELF.rotationY, 0]}>
       <group ref={group}>
         <Part geometry={parts.side} material={paint.vertical} position={[-W / 2 + side / 2, H / 2, 0]} />
         <Part geometry={parts.side} material={paint.vertical} position={[W / 2 - side / 2, H / 2, 0]} />
@@ -117,6 +111,10 @@ export function Bookshelf({ children }: { children?: ReactNode }) {
             <group key={row}>
               <Part geometry={parts.shelf} material={paint.horizontal} position={[0, y, (0.016 - LIP) / 2]} />
               <Part geometry={parts.lip} material={paint.horizontal} position={[0, y - 0.007, D / 2 - LIP / 2]} />
+              {/* thin brass rail along the shelf edge */}
+              <mesh material={paint.brass} position={[0, y - 0.004, D / 2 + 0.004]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.004, 0.004, innerW, 8]} />
+              </mesh>
             </group>
           );
         })}

@@ -12,8 +12,8 @@ const SPINE_ARC = 2.0;
 
 let sharedPages: ReturnType<typeof pagesTextures> | null = null;
 
-// Spine titles use Fraunces; repaint once the web font has arrived.
-const fontsReady = document.fonts?.load('700 20px Fraunces').then(() => true) ?? Promise.resolve(true);
+// Spine titles use Cormorant Garamond; repaint once the web font has arrived.
+const fontsReady = document.fonts?.load('700 20px "Cormorant Garamond"').then(() => true) ?? Promise.resolve(true);
 function useFontsReady() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -97,7 +97,7 @@ export function BookModel({ book, size, coverUrl }: { book: BookRecord; size: Bo
       roughness: 0.92,
     });
     return { cloth, coverFront, spineMat, pages, spine };
-    // `fonts` is listed so the spine is re-painted once Fraunces has loaded
+    // `fonts` is listed so the spine is re-painted once the web font has loaded
   }, [book.color, book.title, t, h, linen, fonts]);
 
   useEffect(

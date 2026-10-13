@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import * as db from '../db/libraryDb';
 import type { BookRecord } from '../db/libraryDb';
 import { extractBookInfo } from '../pdf/pdf';
-import { playChime, playPop } from '../lib/sfx';
+import { playChime, playOpenBook, playPop } from '../lib/sfx';
 import { useSettings } from './settingsStore';
+import { useView } from './viewStore';
 
 /**
  * Central library state. UI, the 3D scene and (later) gesture input all call
@@ -92,6 +93,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       return;
     }
     await get().init();
+    // new books are shelved in front of the visitor, so walk to the shelf first
+    await useView.getState().whenAtShelf();
 
     for (const [i, file] of pdfs.entries()) {
       if (get().books.some((b) => b.fileName === file.name && b.fileSize === file.size)) {
@@ -150,6 +153,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   openBook(id) {
     if (get().entering[id] || get().selectedId) return;
     set({ selectedId: id });
+    if (!muted()) playOpenBook();
     // Let the book fly towards the camera before the pages open.
     setTimeout(() => {
       if (get().selectedId === id) set({ readerOpen: true });
@@ -184,7 +188,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       s.showToast({
         kind: 'new-book',
         title: s.books[index].title,
-        subtitle: index === 0 ? 'Your very first book!' : `Book #${index + 1} shelved`,
+        subtitle: index === 0 ? 'The first volume of your collection' : `Volume ${index + 1} of your collection`,
         coverUrl: s.coverUrls[id],
       });
     }

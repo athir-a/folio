@@ -4,6 +4,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import type { BookRecord } from '../../db/libraryDb';
 import { useLibrary } from '../../state/libraryStore';
+import { useView } from '../../state/viewStore';
 import { easeInOutCubic, easeInQuad, easeOutBack, easeOutCubic, phase } from '../utils/easing';
 import { raysTexture } from '../utils/textures';
 import { BookModel } from './BookModel';
@@ -166,7 +167,8 @@ export function Book({ book, slot, coverUrl }: { book: BookRecord; slot: Slot; c
     g.scale.lerp(tmpV.setScalar(1), k);
   });
 
-  const canInteract = !entering && !selected;
+  const atShelf = useView((s) => s.view === 'shelf' && s.arrived);
+  const canInteract = atShelf && !entering && !selected;
   const onOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     if (!canInteract) return;

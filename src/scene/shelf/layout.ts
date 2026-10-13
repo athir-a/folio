@@ -1,17 +1,25 @@
 import type { BookRecord } from '../../db/libraryDb';
 import { hashString, mulberry32 } from '../../lib/random';
+import { BAYS, HALL, USER_BAY } from '../hall/layout';
 
-/** Bookshelf dimensions (in metres). The shelf group's origin is its floor-centre. */
+const DEPTH = 0.42;
+
+/**
+ * The visitor's bookcase (metres). Its group's origin is its floor-centre and
+ * its local +z faces into the hall; it stands in the user's bay on the side wall.
+ */
 export const SHELF = {
-  width: 1.7,
+  width: 2.2,
   height: 2.3,
-  depth: 0.38,
+  depth: DEPTH,
   side: 0.05,
   board: 0.035,
   base: 0.1,
   rows: 5,
   /** World position of the shelf group. */
-  position: [0.15, 0, -0.38] as [number, number, number],
+  position: [USER_BAY.side * (HALL.halfWidth - DEPTH / 2 - 0.02), 0, BAYS.z[USER_BAY.index]] as [number, number, number],
+  /** Turns the shelf so its front faces the middle of the hall. */
+  rotationY: (-USER_BAY.side * Math.PI) / 2,
 };
 
 export const COMPARTMENT_HEIGHT =

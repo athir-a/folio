@@ -1,31 +1,37 @@
 import { useEffect } from 'react';
 import { LibraryScene } from './scene/LibraryScene';
 import { useLibrary } from './state/libraryStore';
-import { AddBookButton } from './ui/hud/AddBookButton';
-import { DropOverlay } from './ui/hud/DropOverlay';
-import { EmptyShelfHint } from './ui/hud/EmptyShelfHint';
-import { LoadingScreen } from './ui/hud/LoadingScreen';
-import { Toast } from './ui/hud/Toast';
-import { TopBar } from './ui/hud/TopBar';
+import { useView } from './state/viewStore';
+import { DropOverlay } from './ui/common/DropOverlay';
+import { LoadingScreen } from './ui/common/LoadingScreen';
+import { SettingsButtons } from './ui/common/SettingsButtons';
+import { Toast } from './ui/common/Toast';
+import { HallOverlay } from './ui/hall/HallOverlay';
 import { Reader } from './ui/reader/Reader';
+import { ShelfOverlay } from './ui/shelf/ShelfOverlay';
 
 export function App() {
   const init = useLibrary((s) => s.init);
   const reading = useLibrary((s) => s.readerOpen);
+  const view = useView((s) => s.view);
+  const arrived = useView((s) => s.arrived);
 
   useEffect(() => {
     void init();
   }, [init]);
 
+  // overlays fade out while walking, and in once the camera arrives
+  const show = arrived && !reading;
   return (
     <div className="app">
       <div className="scene">
         <LibraryScene />
       </div>
-      <div className={`hud ${reading ? 'hud--hidden' : ''}`}>
-        <TopBar />
-        <EmptyShelfHint />
-        <AddBookButton />
+      <div className={`hud ${show ? '' : 'hud--hidden'}`}>
+        {view === 'hall' ? <HallOverlay /> : <ShelfOverlay />}
+      </div>
+      <div className={`hud hud--settings ${reading ? 'hud--hidden' : ''}`}>
+        <SettingsButtons />
       </div>
       <Toast />
       <DropOverlay />

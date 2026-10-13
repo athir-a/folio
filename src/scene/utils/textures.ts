@@ -3,10 +3,12 @@ import { luminance, shade } from '../../lib/color';
 import { mulberry32 } from '../../lib/random';
 
 /**
- * Textures that are unique per object (book spines, the curtain print…) are
- * painted on a canvas at runtime. Generic surfaces (wood, plaster, fabric
- * weave) use the scanned PBR textures in public/assets instead.
+ * Textures that are unique to this library (book spines, the rug, the night
+ * sky…) are painted on a canvas at runtime. Generic surfaces (wood, plaster,
+ * fabric weave) use the scanned PBR textures in public/assets instead.
  */
+
+export const DISPLAY_FONT = '"Cormorant Garamond", "EB Garamond", Georgia, serif';
 
 function makeCanvas(w: number, h: number) {
   const canvas = document.createElement('canvas');
@@ -47,7 +49,6 @@ export function spineTextures(title: string, color: string, thickness: number, h
   const [canvas, ctx] = makeCanvas(W, H);
   const [ormCanvas, orm] = makeCanvas(W, H);
 
-  // subtle tonal variation, as real bookcloth is never perfectly flat
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, shade(color, -0.03));
   g.addColorStop(0.5, color);
@@ -66,7 +67,6 @@ export function spineTextures(title: string, color: string, thickness: number, h
     draw(orm);
   };
 
-  // head and tail bands
   paint((c) => {
     for (const y of [H * 0.065, H * 0.935]) {
       c.fillRect(W * 0.08, y - 7, W * 0.84, 5);
@@ -74,13 +74,12 @@ export function spineTextures(title: string, color: string, thickness: number, h
     }
   });
 
-  const fontSize = Math.min(W * 0.42, 52);
-  const font = `700 ${fontSize}px Fraunces, Georgia, serif`;
+  const fontSize = Math.min(W * 0.46, 56);
   paint((c) => {
     c.save();
     c.translate(W / 2, H / 2);
     c.rotate(Math.PI / 2);
-    c.font = font;
+    c.font = `700 ${fontSize}px ${DISPLAY_FONT}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.fillText(fitText(c, title, H * 0.72), 0, 2);
@@ -94,14 +93,13 @@ export function spineTextures(title: string, color: string, thickness: number, h
 export function pagesTextures() {
   const [canvas, ctx] = makeCanvas(256, 64);
   const [bumpCanvas, bump] = makeCanvas(256, 64);
-  ctx.fillStyle = '#f3e7cf';
+  ctx.fillStyle = '#efe2c6';
   ctx.fillRect(0, 0, 256, 64);
   bump.fillStyle = '#fff';
   bump.fillRect(0, 0, 256, 64);
   const rand = mulberry32(21);
   for (let x = 0; x < 256; x += 2) {
-    const a = 0.06 + rand() * 0.12;
-    ctx.fillStyle = `rgba(120, 90, 60, ${a})`;
+    ctx.fillStyle = `rgba(120, 90, 60, ${0.06 + rand() * 0.12})`;
     ctx.fillRect(x, 0, 1, 64);
     bump.fillStyle = `rgba(0, 0, 0, ${0.4 + rand() * 0.4})`;
     bump.fillRect(x, 0, 1, 64);
@@ -109,209 +107,258 @@ export function pagesTextures() {
   return { map: toTexture(canvas), bump: toTexture(bumpCanvas, false) };
 }
 
-/** Light "cookie" projected by the sun spotlight: window panes plus leaf shadows. */
-export function windowCookieTexture() {
-  const [canvas, ctx] = makeCanvas(512, 512);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, 512, 512);
-  ctx.filter = 'blur(6px)';
-  ctx.fillStyle = '#fff';
-  const pane = 110;
-  const gap = 14;
-  const ox = 256 - pane - gap / 2;
-  const oy = 256 - pane * 1.5 - gap;
-  for (let c = 0; c < 2; c++) {
-    for (let r = 0; r < 3; r++) ctx.fillRect(ox + c * (pane + gap), oy + r * (pane + gap), pane, pane);
-  }
-  ctx.filter = 'blur(8px)';
-  ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  const rand = mulberry32(3);
-  for (let i = 0; i < 26; i++) {
-    ctx.beginPath();
-    ctx.ellipse(130 + rand() * 120, 90 + rand() * 330, 10 + rand() * 18, 5 + rand() * 7, rand() * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  return toTexture(canvas, false);
-}
-
-/** The bright garden view outside the window. */
-export function outdoorTexture() {
-  const [canvas, ctx] = makeCanvas(1024, 1024);
-  const sky = ctx.createLinearGradient(0, 0, 0, 1024);
-  sky.addColorStop(0, '#5fb6f2');
-  sky.addColorStop(0.55, '#bfe5fb');
-  sky.addColorStop(0.75, '#f6efd9');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, 1024, 1024);
-  const rand = mulberry32(11);
-
-  ctx.filter = 'blur(10px)';
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let i = 0; i < 9; i++) {
-    const x = rand() * 1024;
-    const y = 80 + rand() * 260;
-    for (let k = 0; k < 5; k++) {
-      ctx.beginPath();
-      ctx.arc(x + k * 34 - 60, y + Math.sin(k) * 14, 30 + rand() * 30, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  // distant house facade
-  ctx.filter = 'blur(3px)';
-  ctx.fillStyle = '#f0d59a';
-  ctx.fillRect(560, 520, 300, 240);
-  ctx.fillStyle = '#8e5a43';
-  ctx.beginPath();
-  ctx.moveTo(540, 525);
-  ctx.lineTo(710, 420);
-  ctx.lineTo(880, 525);
-  ctx.fill();
+/**
+ * Spine detail shared by the thousands of library books: a white base (so the
+ * per-book colour shows through) with tooled bands near head and tail.
+ */
+export function fillerSpineTexture() {
+  const [canvas, ctx] = makeCanvas(32, 256);
   ctx.fillStyle = '#ffffff';
-  for (const [x, y] of [[600, 570], [700, 570], [790, 570]]) ctx.fillRect(x, y, 44, 60);
-  // trees and hedges, several depth layers
-  ctx.filter = 'blur(4px)';
-  const greens = ['#3f7f3a', '#4f9447', '#62a854', '#77b960'];
-  for (let layer = 0; layer < 4; layer++) {
-    ctx.fillStyle = greens[layer];
-    for (let i = 0; i < 22; i++) {
-      ctx.beginPath();
-      ctx.arc(rand() * 1100 - 40, 700 + layer * 70 + rand() * 50, 40 + rand() * 60, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  ctx.filter = 'blur(2px)';
-  const flowers = ['#ff6f91', '#ffd166', '#ff8c42', '#f72585', '#fff1e6'];
-  for (let i = 0; i < 160; i++) {
-    ctx.fillStyle = flowers[i % flowers.length];
-    ctx.beginPath();
-    ctx.arc(rand() * 1024, 900 + rand() * 120, 4 + rand() * 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  return toTexture(canvas);
-}
-
-/** Printed leaf pattern for the teal velvet curtains. */
-export function curtainPrintTexture() {
-  const [canvas, ctx] = makeCanvas(1024, 1024);
-  ctx.fillStyle = '#0f5c63';
-  ctx.fillRect(0, 0, 1024, 1024);
-  const rand = mulberry32(5);
-  for (let i = 0; i < 70; i++) {
-    const x = rand() * 1024;
-    const y = rand() * 1024;
-    const len = 60 + rand() * 70;
-    const lean = -0.5 + rand();
-    // a fern-like frond: stem plus paired leaflets
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(lean);
-    const gold = rand() > 0.4;
-    ctx.strokeStyle = gold ? 'rgba(214, 170, 82, 0.85)' : 'rgba(64, 170, 160, 0.85)';
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(0, -len);
-    ctx.stroke();
-    for (let k = 1; k < 7; k++) {
-      const py = (-len * k) / 7;
-      const s = (1 - k / 8) * 14;
-      for (const side of [-1, 1]) {
-        ctx.beginPath();
-        ctx.ellipse(side * s * 0.7, py, s, s * 0.35, side * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-  const tex = toTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex;
-}
-
-/** Woven flat-weave rug with colourful vintage borders. */
-export function rugTexture() {
-  const [canvas, ctx] = makeCanvas(1024, 640);
-  ctx.fillStyle = '#efe0c4';
-  ctx.fillRect(0, 0, 1024, 640);
-  const bands = ['#d9563f', '#e5a630', '#2a5bc4', '#2ba59a', '#d9563f'];
-  bands.forEach((c, i) => {
-    ctx.strokeStyle = c;
-    ctx.lineWidth = 12;
-    const m = 34 + i * 24;
-    ctx.strokeRect(m, m, 1024 - m * 2, 640 - m * 2);
-  });
-  // central medallion of diamonds
-  for (let i = 0; i < 7; i++) {
-    ctx.fillStyle = bands[i % 4];
-    ctx.save();
-    ctx.translate(512 + (i - 3) * 82, 320);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillRect(-22, -22, 44, 44);
-    ctx.fillStyle = '#efe0c4';
-    ctx.fillRect(-9, -9, 18, 18);
-    ctx.restore();
-  }
-  // yarn irregularity
-  const rand = mulberry32(8);
-  for (let i = 0; i < 4000; i++) {
-    ctx.fillStyle = `rgba(${rand() > 0.5 ? '255,255,255' : '60,40,20'}, ${rand() * 0.06})`;
-    ctx.fillRect(rand() * 1024, rand() * 640, 3 + rand() * 6, 1.5);
-  }
+  ctx.fillRect(0, 0, 32, 256);
+  ctx.fillStyle = '#d8b46a';
+  for (const y of [22, 30, 226, 234]) ctx.fillRect(3, y, 26, 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(5, 70, 22, 110); // title label
+  ctx.fillStyle = 'rgba(216,180,106,0.8)';
+  for (let y = 84; y < 170; y += 14) ctx.fillRect(10, y, 12, 2);
   return toTexture(canvas);
 }
 
 /**
- * Pothos leaf in leaf-UV space (0..1 across the leaf's bounding box):
- * colour with golden variegation, plus a bump map for the midrib and veins.
+ * The view through the great window: deep blue night, drifting clouds, moonlit
+ * snowy mountains and a city of warm lights in the valley. Stars are added as
+ * real points in the scene so they can twinkle.
  */
-export function leafTextures() {
-  const S = 256;
-  const [canvas, ctx] = makeCanvas(S, S);
-  const [bumpCanvas, bump] = makeCanvas(S, S);
-  const base = ctx.createLinearGradient(0, S, 0, 0);
-  base.addColorStop(0, '#3f8a3a');
-  base.addColorStop(1, '#4f9c43');
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, S, S);
-  const rand = mulberry32(31);
-  ctx.filter = 'blur(3px)';
-  ctx.strokeStyle = 'rgba(214, 222, 120, 0.55)';
-  for (let i = 0; i < 9; i++) {
-    ctx.lineWidth = 2 + rand() * 5;
-    ctx.beginPath();
-    const x = S / 2 + (rand() - 0.5) * S * 0.6;
-    ctx.moveTo(S / 2, S * 0.95);
-    ctx.quadraticCurveTo(x, S * 0.5, x + (rand() - 0.5) * 60, S * 0.1);
-    ctx.stroke();
-  }
-  ctx.filter = 'none';
+export function nightSkyTexture() {
+  const W = 2048;
+  const H = 1536;
+  const [canvas, ctx] = makeCanvas(W, H);
+  const rand = mulberry32(77);
+  const horizon = H * 0.62;
 
-  bump.fillStyle = '#808080';
-  bump.fillRect(0, 0, S, S);
-  const veins = (c: CanvasRenderingContext2D, colour: string) => {
-    c.strokeStyle = colour;
-    c.lineCap = 'round';
-    c.lineWidth = 5;
-    c.beginPath();
-    c.moveTo(S / 2, S);
-    c.lineTo(S / 2, 0);
-    c.stroke();
-    c.lineWidth = 2.5;
-    for (let k = 1; k < 7; k++) {
-      const y = S - (k * S) / 7.5;
-      for (const side of [-1, 1]) {
-        c.beginPath();
-        c.moveTo(S / 2, y);
-        c.quadraticCurveTo(S / 2 + side * S * 0.2, y - 18, S / 2 + side * S * 0.42, y - 40);
-        c.stroke();
-      }
+  const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+  sky.addColorStop(0, '#060c22');
+  sky.addColorStop(0.55, '#10254f');
+  sky.addColorStop(1, '#2a4f8c');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // soft moonlit clouds: stretched radial gradients. (No canvas filters here:
+  // they re-blur on every draw call and stall the page for seconds.)
+  for (let i = 0; i < 26; i++) {
+    const x = rand() * W;
+    const y = horizon * (0.25 + rand() * 0.6);
+    const rx = 120 + rand() * 260;
+    const ry = 30 + rand() * 50;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(rx / ry, 1);
+    const cloud = ctx.createRadialGradient(0, 0, 0, 0, 0, ry * 1.6);
+    cloud.addColorStop(0, `rgba(120, 160, 225, ${0.1 + rand() * 0.14})`);
+    cloud.addColorStop(1, 'rgba(120, 160, 225, 0)');
+    ctx.fillStyle = cloud;
+    ctx.fillRect(-ry * 1.6, -ry * 1.6, ry * 3.2, ry * 3.2);
+    ctx.restore();
+  }
+
+  // mountain ranges, far to near
+  const ranges = [
+    { base: horizon + 10, peak: 360, color: '#1e3866', snow: 'rgba(200, 220, 255, 0.55)', jag: 0.9 },
+    { base: horizon + 60, peak: 240, color: '#152a50', snow: 'rgba(170, 195, 240, 0.35)', jag: 1.1 },
+    { base: horizon + 120, peak: 150, color: '#0f1f3c', snow: null, jag: 1.3 },
+  ];
+  ranges.forEach((r) => {
+    // a ridge line built from a few big peaks plus finer jagged detail
+    const pts: [number, number][] = [];
+    for (let x = -40; x <= W + 80; x += 12) {
+      const centre = Math.abs(x - W * 0.42) / W; // tallest peaks a little left of centre
+      const big = Math.abs(Math.sin(x * 0.0042 + r.base)) ** 1.6;
+      const detail = Math.sin(x * 0.031 + r.peak) * 0.08 + (rand() - 0.5) * 0.06 * r.jag;
+      const h = r.peak * Math.max(0.12, (1 - centre * 1.2) * (0.35 + big * 0.65 + detail));
+      pts.push([x, r.base - h]);
     }
+    const ridge = () => {
+      ctx.beginPath();
+      ctx.moveTo(-40, H);
+      pts.forEach(([px, py]) => ctx.lineTo(px, py));
+      ctx.lineTo(W + 80, H);
+      ctx.closePath();
+    };
+    ctx.fillStyle = r.color;
+    ridge();
+    ctx.fill();
+    if (r.snow) {
+      // moonlit snow on the upper slopes, fading down the mountainside
+      ctx.save();
+      ridge();
+      ctx.clip();
+      const snow = ctx.createLinearGradient(0, r.base - r.peak, 0, r.base - r.peak * 0.35);
+      snow.addColorStop(0, r.snow);
+      snow.addColorStop(1, 'rgba(160, 190, 240, 0)');
+      ctx.fillStyle = snow;
+      ctx.fillRect(0, r.base - r.peak - 10, W, r.peak);
+      ctx.restore();
+    }
+  });
+
+  // the city: towers and spires, then thousands of warm windows
+  const cityTop = horizon + 90;
+  ctx.fillStyle = '#0b1530';
+  for (let i = 0; i < 140; i++) {
+    const x = rand() * W;
+    const w = 14 + rand() * 40;
+    const h = 30 + rand() * 120 * (1 - Math.abs(x - W / 2) / W);
+    const y = cityTop + 120 + rand() * (H - cityTop - 120);
+    ctx.fillRect(x, y - h, w, h);
+    if (rand() > 0.6) {
+      ctx.beginPath();
+      ctx.moveTo(x - 2, y - h);
+      ctx.lineTo(x + w / 2, y - h - 30 - rand() * 50);
+      ctx.lineTo(x + w + 2, y - h);
+      ctx.fill();
+    }
+  }
+  for (let i = 0; i < 2600; i++) {
+    const y = cityTop + Math.pow(rand(), 0.7) * (H - cityTop);
+    const spread = 0.3 + ((y - cityTop) / (H - cityTop)) * 0.7;
+    const x = W / 2 + (rand() - 0.5) * W * spread * 1.2;
+    const warm = rand();
+    ctx.fillStyle = warm > 0.15 ? `rgba(255, ${190 + rand() * 50}, ${110 + rand() * 50}, ${0.5 + rand() * 0.5})` : 'rgba(180, 210, 255, 0.6)';
+    const s = 1.5 + rand() * 2.5;
+    ctx.fillRect(x, y, s, s);
+  }
+  // warm haze over the city
+  const haze = ctx.createLinearGradient(0, cityTop, 0, H);
+  haze.addColorStop(0, 'rgba(255, 170, 90, 0)');
+  haze.addColorStop(1, 'rgba(255, 170, 90, 0.18)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, cityTop, W, H - cityTop);
+  return toTexture(canvas);
+}
+
+/** Antique Persian rug: madder-red field, navy borders, central medallion. */
+export function persianRugTexture() {
+  const W = 1536;
+  const H = 1024;
+  const [canvas, ctx] = makeCanvas(W, H);
+  const rand = mulberry32(13);
+  ctx.fillStyle = '#7d2324';
+  ctx.fillRect(0, 0, W, H);
+
+  const border = (m: number, w: number, color: string) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    ctx.strokeRect(m, m, W - m * 2, H - m * 2);
   };
-  veins(ctx, 'rgba(190, 220, 140, 0.45)');
-  bump.filter = 'blur(1.5px)';
-  veins(bump, '#3a3a3a');
-  return { map: toTexture(canvas), bump: toTexture(bumpCanvas, false) };
+  border(30, 50, '#1b2847');
+  border(30, 4, '#d8b46a');
+  border(55, 4, '#d8b46a');
+  border(95, 22, '#a8432f');
+  // tiny motifs along the main border
+  ctx.fillStyle = '#d8b46a';
+  for (let x = 60; x < W - 60; x += 34) {
+    for (const y of [30, H - 30]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  for (let y = 60; y < H - 60; y += 34) {
+    for (const x of [30, W - 30]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // field pattern
+  for (let i = 0; i < 260; i++) {
+    const x = 140 + rand() * (W - 280);
+    const y = 140 + rand() * (H - 280);
+    ctx.fillStyle = ['#a8432f', '#1b2847', '#c99a4f', '#5a1a1c'][i % 4];
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    const s = 6 + rand() * 10;
+    ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.restore();
+  }
+  // central medallion
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  const rings: [number, string][] = [
+    [300, '#1b2847'],
+    [270, '#d8b46a'],
+    [255, '#a8432f'],
+    [190, '#1b2847'],
+    [120, '#c99a4f'],
+    [60, '#7d2324'],
+  ];
+  rings.forEach(([r, c]) => {
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    for (let k = 0; k <= 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const rr = k % 2 ? r * 0.82 : r;
+      ctx.lineTo(Math.cos(a) * rr * 1.25, Math.sin(a) * rr * 0.8);
+    }
+    ctx.fill();
+  });
+  ctx.restore();
+  // wear and yarn variation, gentle
+  for (let i = 0; i < 9000; i++) {
+    ctx.fillStyle = `rgba(${rand() > 0.5 ? '255,235,210' : '20,10,10'}, ${rand() * 0.07})`;
+    ctx.fillRect(rand() * W, rand() * H, 2 + rand() * 6, 1.5);
+  }
+  return toTexture(canvas);
+}
+
+/** Navy velvet banner with a golden crescent moon and star. */
+export function bannerTexture() {
+  const [canvas, ctx] = makeCanvas(512, 1280);
+  ctx.fillStyle = '#16244a';
+  ctx.fillRect(0, 0, 512, 1280);
+  ctx.strokeStyle = '#d8b46a';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(28, 28, 456, 1224);
+  ctx.lineWidth = 3;
+  ctx.strokeRect(48, 48, 416, 1184);
+  ctx.fillStyle = '#e2c27a';
+  ctx.beginPath();
+  ctx.arc(256, 560, 150, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#16244a';
+  ctx.beginPath();
+  ctx.arc(306, 520, 140, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e2c27a';
+  ctx.beginPath();
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2 - Math.PI / 2;
+    const r = k % 2 ? 18 : 46;
+    ctx.lineTo(300 + Math.cos(a) * r, 330 + Math.sin(a) * r);
+  }
+  ctx.fill();
+  return toTexture(canvas);
+}
+
+/** Small engraved brass plaque for the visitor's bay. */
+export function plaqueTexture(text: string) {
+  const [canvas, ctx] = makeCanvas(512, 128);
+  const g = ctx.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#e6c77e');
+  g.addColorStop(0.5, '#c9a052');
+  g.addColorStop(1, '#a37a35');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = '#6e4f1f';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, 492, 108);
+  ctx.fillStyle = '#3d2a10';
+  ctx.font = `700 54px ${DISPLAY_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, 68);
+  return toTexture(canvas);
 }
 
 /** Radial "item get!" rays used behind a newly added book. */
@@ -337,24 +384,5 @@ export function raysTexture() {
     ctx.lineTo(10, 0);
     ctx.fill();
   }
-  return toTexture(canvas);
-}
-
-/** Soft vertical gradient used for the faint sunbeam shaft. */
-export function beamTexture() {
-  const [canvas, ctx] = makeCanvas(64, 256);
-  const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, 'rgba(255,255,255,0)');
-  g.addColorStop(0.3, 'rgba(255,255,255,1)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 64, 256);
-  const h = ctx.createLinearGradient(0, 0, 64, 0);
-  h.addColorStop(0, 'rgba(0,0,0,1)');
-  h.addColorStop(0.5, 'rgba(0,0,0,0)');
-  h.addColorStop(1, 'rgba(0,0,0,1)');
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.fillStyle = h;
-  ctx.fillRect(0, 0, 64, 256);
   return toTexture(canvas);
 }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getBookFile } from '../../db/libraryDb';
 import { openPdf, type OpenedPdf, type PdfDocument } from '../../pdf/pdf';
+import { playPageTurn } from '../../lib/sfx';
 import { useLibrary } from '../../state/libraryStore';
+import { useSettings } from '../../state/settingsStore';
 import { PdfPage } from './PdfPage';
 
 /** Full-screen reading view. Opens once a book has flown off the shelf. */
@@ -48,7 +50,9 @@ export function Reader() {
     (n: number) => {
       if (!bookId) return;
       const next = Math.min(pageCount, Math.max(1, Math.round(n) || 1));
-      if (next !== page) setLastPage(bookId, next);
+      if (next === page) return;
+      setLastPage(bookId, next);
+      if (!useSettings.getState().muted) playPageTurn();
     },
     [bookId, page, pageCount, setLastPage],
   );
