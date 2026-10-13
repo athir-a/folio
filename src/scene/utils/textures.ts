@@ -74,7 +74,7 @@ export function spineTextures(title: string, color: string, thickness: number, h
     }
   });
 
-  const fontSize = Math.min(W * 0.46, 56);
+  const fontSize = Math.min(W * 0.6, 72); // as large as the spine allows, so titles read from the shelf view
   paint((c) => {
     c.save();
     c.translate(W / 2, H / 2);

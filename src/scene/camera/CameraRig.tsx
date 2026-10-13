@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useLibrary } from '../../state/libraryStore';
 import { useView, type View } from '../../state/viewStore';
+import { BAYS, HALL } from '../hall/layout';
 import { SHELF } from '../shelf/layout';
 import { easeInOutCubic, phase } from '../utils/easing';
 
@@ -16,13 +17,37 @@ const WALK_SECONDS = 3.2;
 const tmpPos = new THREE.Vector3();
 const right = new THREE.Vector3();
 
-/** Camera placements for each view; portrait screens stand further back. */
+/** How much of the screen the shelf may use; the rest is kept clear for the title and buttons. */
+const SHELF_SCREEN_HEIGHT = 0.76;
+const SHELF_SCREEN_WIDTH = 0.94;
+/** A longer lens than the hall's, so spines near the edges aren't skewed. */
+const SHELF_FOV = 34;
+
+/**
+ * Camera placements for each view. At the shelf, the distance is worked out
+ * from the screen's shape so the whole bookcase just fills the view, whatever
+ * the window size, which keeps the spines as large (and readable) as possible.
+ */
 function shots(aspect: number): Record<View, Shot> {
   const portrait = aspect < 1;
   // the shelf's front, and the direction it faces (into the hall)
   const facing = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), SHELF.rotationY);
   const front = new THREE.Vector3(...SHELF.position).addScaledVector(facing, SHELF.depth / 2);
-  const standBack = portrait ? 5 : 3.5;
+  const shelfHeight = SHELF.height + 0.05; // including the crown moulding
+  const shelfWidth = SHELF.width + 0.07;
+  const tanHalf = Math.tan(THREE.MathUtils.degToRad(SHELF_FOV / 2));
+  const fitHeight = shelfHeight / SHELF_SCREEN_HEIGHT / 2 / tanHalf;
+  const fitWidth = shelfWidth / SHELF_SCREEN_WIDTH / 2 / (tanHalf * aspect);
+  // never back into the bookcases on the far side of the hall; on very narrow
+  // screens, widen the lens instead
+  const maxBack = HALL.halfWidth * 2 - BAYS.depth * 2 - 0.5;
+  let standBack = Math.max(fitHeight, fitWidth);
+  let fov = SHELF_FOV;
+  if (standBack > maxBack) {
+    standBack = maxBack;
+    fov = THREE.MathUtils.radToDeg(2 * Math.atan(shelfWidth / SHELF_SCREEN_WIDTH / 2 / (maxBack * aspect)));
+  }
+  const eyeLevel = shelfHeight / 2; // look straight at the middle: no keystoning
   return {
     hall: {
       position: new THREE.Vector3(0, 1.8, portrait ? 8.6 : 7.4),
@@ -30,9 +55,9 @@ function shots(aspect: number): Record<View, Shot> {
       fov: portrait ? 62 : 52,
     },
     shelf: {
-      position: front.clone().addScaledVector(facing, standBack).setY(1.45),
-      target: front.clone().setY(1.22),
-      fov: portrait ? 54 : 46,
+      position: front.clone().addScaledVector(facing, standBack).setY(eyeLevel),
+      target: front.clone().setY(eyeLevel),
+      fov,
     },
   };
 }
@@ -108,7 +133,8 @@ export function CameraRig() {
     } else {
       // idle: drift a little with the pointer (not while a book is open)
       const reading = useLibrary.getState().selectedId !== null;
-      const amount = reading ? 0 : view === 'hall' ? 0.3 : 0.12;
+      // at the shelf, only a whisper of drift so the framing stays put
+      const amount = reading ? 0 : view === 'hall' ? 0.3 : 0.04;
       s.sway.lerp(frame.pointer, 1 - Math.exp(-2.5 * dt));
       right.setFromMatrixColumn(camera.matrixWorld, 0);
       tmpPos.copy(shot.position).addScaledVector(right, s.sway.x * amount).add(new THREE.Vector3(0, s.sway.y * amount * 0.4, 0));
