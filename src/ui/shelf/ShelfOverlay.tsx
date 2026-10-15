@@ -15,7 +15,7 @@ export function ShelfOverlay() {
       </button>
       <div className="shelf-title">
         <h2>Your Shelf</h2>
-        <span>{count === 0 ? 'empty, for now' : `${count} ${count === 1 ? 'volume' : 'volumes'}`}</span>
+        <span>{count === 0 ? 'empty, for now' : `${count} ${count === 1 ? 'book' : 'books'}`}</span>
       </div>
       <EmptyShelfHint />
       <AddBookButton />

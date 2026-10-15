@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
-import { LibraryScene } from './scene/LibraryScene';
+import { PixelStage } from './pixel/PixelStage';
 import { useLibrary } from './state/libraryStore';
 import { useView } from './state/viewStore';
 import { DropOverlay } from './ui/common/DropOverlay';
-import { LoadingScreen } from './ui/common/LoadingScreen';
 import { SettingsButtons } from './ui/common/SettingsButtons';
 import { Toast } from './ui/common/Toast';
 import { HallOverlay } from './ui/hall/HallOverlay';
@@ -20,12 +19,12 @@ export function App() {
     void init();
   }, [init]);
 
-  // overlays fade out while walking, and in once the camera arrives
+  // overlays fade out during the iris transition, and back in once it opens
   const show = arrived && !reading;
   return (
     <div className="app">
       <div className="scene">
-        <LibraryScene />
+        <PixelStage />
       </div>
       <div className={`hud ${show ? '' : 'hud--hidden'}`}>
         {view === 'hall' ? <HallOverlay /> : <ShelfOverlay />}
@@ -36,7 +35,6 @@ export function App() {
       <Toast />
       <DropOverlay />
       <Reader />
-      <LoadingScreen />
     </div>
   );
 }

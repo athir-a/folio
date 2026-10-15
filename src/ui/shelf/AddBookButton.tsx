@@ -15,7 +15,7 @@ export function AddBookButton() {
           </>
         ) : (
           <>
-            <span className="btn__mark" aria-hidden="true">✦</span> Add a book
+            <span className="btn__mark" aria-hidden="true">+</span> Add a book
           </>
         )}
       </button>

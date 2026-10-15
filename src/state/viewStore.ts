@@ -1,18 +1,16 @@
 import { create } from 'zustand';
-import { useSettings } from './settingsStore';
-import { playFootsteps } from '../lib/sfx';
 
 /** Where the visitor is standing: looking down the hall, or in front of their shelf. */
 export type View = 'hall' | 'shelf';
 
 interface ViewState {
   view: View;
-  /** False while the camera is still walking to `view`. */
+  /** False while the transition to `view` is still playing. */
   arrived: boolean;
   /** Walk to a view. `fromHistory` is set when the browser's back/forward buttons asked for it. */
   goTo: (view: View, fromHistory?: boolean) => void;
   markArrived: () => void;
-  /** Resolves once the camera reaches the shelf (walking there first if needed). */
+  /** Resolves once the shelf is showing (going there first if needed). */
   whenAtShelf: () => Promise<void>;
 }
 
@@ -31,7 +29,6 @@ export const useView = create<ViewState>((set, get) => ({
       window.history.pushState(null, '', url);
     }
     set({ view, arrived: false });
-    if (!useSettings.getState().muted) playFootsteps();
   },
   markArrived() {
     set({ arrived: true });

@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folio · low-poly preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1020; overflow: hidden; color: #f3e6cc; font-family: Georgia, 'Times New Roman', serif; }
+  canvas { display: block; }
+  .hud { position: fixed; left: 24px; bottom: 24px; max-width: 360px; }
+  h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: 0.04em; font-weight: normal; }
+  p { margin: 0 0 14px; font-size: 14px; line-height: 1.45; opacity: 0.75; }
+  button { font: inherit; font-size: 15px; padding: 10px 20px; border-radius: 999px; border: 1px solid #e8b96a; background: rgba(42, 28, 18, 0.8); color: #ffe2ad; cursor: pointer; }
+  button:hover { background: rgba(70, 44, 24, 0.9); }
+  .stats { position: fixed; right: 16px; top: 12px; font: 12px/1.6 ui-monospace, Consolas, monospace; opacity: 0.65; text-align: right; }
+  .stats label { cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="hud">
+  <h1>Folio</h1>
+  <p>Low-poly preview: flat-shaded shapes, painted colours, glow sprites instead of real lights and shadows, and no image files.</p>
+  <button id="go">Go to my shelf</button>
+</div>
+<div class="stats">
+  <div id="stats"></div>
+  <label><input type="checkbox" id="ambient" checked> ambient flicker</label>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+// ---------- setup ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+
+const NIGHT = 0x0b1020;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(NIGHT);
+scene.fog = new THREE.Fog(NIGHT, 14, 34);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 80);
+
+// seeded random so the hall looks the same every load
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const rand = mulberry32(7);
+const rnd = (a, b) => a + (b - a) * rand();
+const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+
+const HW = 5, H = 8, FRONT = 9, BACK = -15, LEN = FRONT - BACK, MIDZ = (FRONT + BACK) / 2;
+
+const lambert = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+const mats = {
+  plaster: lambert(0x4b3b3a), stone: lambert(0x5d5058), ceiling: lambert(0x22191c),
+  wood: lambert(0x6b3e22), woodDark: lambert(0x3e2414), brass: lambert(0xc9984c),
+  velvet: lambert(0x8a2433), rug: lambert(0x7a2531), rugInner: lambert(0x5b1a26), rugBorder: lambert(0xd0a35f),
+  cat: lambert(0xe08f45), catLight: lambert(0xf3e3cc),
+  bookA: lambert(0x2f5a4a), bookB: lambert(0x8c3b2a), bookC: lambert(0x2c3e6b),
+  shade: new THREE.MeshBasicMaterial({ color: 0xffc77a, side: THREE.DoubleSide }),
+  bulb: new THREE.MeshBasicMaterial({ color: 0xfff1cf }),
+};
+
+// ---------- static geometry is merged per material: a handful of draw calls for the whole hall ----------
+const buckets = new Map();
+const M = (x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
+  new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+function add(mat, geom, local, parent) {
+  geom.applyMatrix4(parent ? parent.clone().multiply(local) : local);
+  if (!buckets.has(mat)) buckets.set(mat, []);
+  buckets.get(mat).push(geom);
+}
+const boxAt = (mat, w, h, d, local, parent) => add(mat, new THREE.BoxGeometry(w, h, d), local, parent);
+const cylAt = (mat, rt, rb, h, seg, local, parent, open = false) => add(mat, new THREE.CylinderGeometry(rt, rb, h, seg, 1, open), local, parent);
+
+// ---------- canvas textures (drawn in code, nothing downloaded) ----------
+const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+
+const GLOW = (() => {
+  const c = canvas(64, 64), g = c.getContext('2d');
+  const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return tex(c);
+})();
+
+const glows = [];
+function glow(color, size, x, y, z, opacity = 0.8) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity }));
+  s.scale.set(size, size, 1); s.position.set(x, y, z); scene.add(s);
+  glows.push({ s, base: size, phase: rand() * 10 });
+  return s;
+}
+
+// ---------- floor, walls, ceiling ----------
+{
+  const c = canvas(256, 256), g = c.getContext('2d');
+  const tones = ['#5a3420', '#4e2d1b', '#633a24', '#553120'];
+  for (let row = 0; row < 8; row++) {
+    let x = -rnd(0, 120);
+    while (x < 256) {
+      const w = rnd(90, 150);
+      g.fillStyle = pick(tones); g.fillRect(x, row * 32, w, 32);
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x, row * 32, 2, 32);
+      x += w;
+    }
+    g.fillStyle = 'rgba(0,0,0,0.4)'; g.fillRect(0, row * 32, 256, 2);
+  }
+  const t = tex(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(HW, LEN / 2);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * HW, LEN), new THREE.MeshLambertMaterial({ map: t }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, MIDZ); scene.add(floor);
+}
+boxAt(mats.plaster, 0.3, H, LEN, M(-HW - 0.15, H / 2, MIDZ));
+boxAt(mats.plaster, 0.3, H, LEN, M(HW + 0.15, H / 2, MIDZ));
+boxAt(mats.plaster, 2 * HW + 0.6, H, 0.3, M(0, H / 2, BACK - 0.15));
+boxAt(mats.ceiling, 2 * HW + 0.6, 0.3, LEN, M(0, H + 0.15, MIDZ));
+for (let z = FRONT - 2; z > BACK; z -= 4) boxAt(mats.woodDark, 2 * HW, 0.35, 0.35, M(0, H - 0.17, z));
+
+// ---------- bookcases ----------
+const BOOK_COLORS = ['#7b2d26', '#2f4f3e', '#1f3a5f', '#8a6a2f', '#5a2a4a', '#3d5a6e', '#a0522d', '#4a3b2a', '#6b7d3a', '#2b2b3d', '#8c4a3a', '#c2a36b'];
+const books = [], bands = [];
+const CASE = { W: 3.1, H: 5.6, D: 0.6, shelves: 5 };
+
+function bookcase(parent, mine) {
+  const { W, H: CH, D, shelves } = CASE;
+  boxAt(mats.woodDark, W, CH, 0.05, M(0, CH / 2, -D / 2 + 0.025), parent);
+  boxAt(mats.wood, 0.1, CH, D, M(-W / 2 + 0.05, CH / 2, 0), parent);
+  boxAt(mats.wood, 0.1, CH, D, M(W / 2 - 0.05, CH / 2, 0), parent);
+  boxAt(mats.woodDark, W + 0.1, 0.2, D + 0.06, M(0, 0.1, 0.03), parent);
+  boxAt(mats.wood, W + 0.3, 0.18, D + 0.2, M(0, CH + 0.09, 0.05), parent);
+  boxAt(mats.woodDark, W + 0.4, 0.06, D + 0.28, M(0, CH + 0.21, 0.07), parent);
+  const gap = (CH - 0.4) / shelves;
+  for (let i = 0; i <= shelves; i++) boxAt(mats.wood, W - 0.2, 0.05, D, M(0, 0.2 + i * gap, 0), parent);
+
+  for (let i = 0; i < shelves; i++) {
+    if (mine && i !== 2) continue; // your shelf starts nearly empty
+    const y = 0.2 + i * gap + 0.025;
+    let x = -W / 2 + 0.14;
+    const end = mine ? -W / 2 + 1.1 : W / 2 - 0.14;
+    while (x < end) {
+      const w = rnd(0.07, 0.15), h = rnd(0.55, gap - 0.14), d = rnd(0.36, 0.46);
+      if (x + w > end) break;
+      if (!mine && rand() < 0.05) { x += rnd(0.15, 0.35); continue; }
+      const z = D / 2 - d / 2 - 0.04;
+      books.push({ m: parent.clone().multiply(M(x + w / 2, y + h / 2, z, 0, 0, 0, w, h, d)), c: pick(BOOK_COLORS) });
+      if (rand() < 0.55) bands.push(parent.clone().multiply(M(x + w / 2, y + h * rnd(0.7, 0.85), z + 0.004, 0, 0, 0, w + 0.004, 0.03, d)));
+      x += w + 0.004;
+    }
+  }
+}
+
+const BAYS = [5, 1, -3, -7, -11];
+const MY_BAY = { side: 1, z: 1 };
+for (const side of [-1, 1]) {
+  const ry = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+  for (const z of BAYS) bookcase(M(side * (HW - CASE.D / 2), 0, z, ry), side === MY_BAY.side && z === MY_BAY.z);
+  // stone pillars between the bays, with a candle sconce on each
+  for (let pz = 7; pz > BACK; pz -= 4) {
+    const px = side * (HW - 0.25);
+    boxAt(mats.stone, 0.5, H - 0.5, 0.7, M(px, (H - 0.5) / 2, pz));
+    boxAt(mats.stone, 0.75, 0.3, 0.9, M(side * (HW - 0.37), 0.15, pz));
+    boxAt(mats.stone, 0.75, 0.3, 0.9, M(side * (HW - 0.37), H - 0.6, pz));
+    const sx = side * (HW - 0.6);
+    cylAt(mats.brass, 0.07, 0.04, 0.08, 8, M(sx, 4.4, pz));
+    cylAt(mats.bulb, 0.025, 0.025, 0.14, 6, M(sx, 4.51, pz));
+    glow(0xffb45e, 1.2, sx, 4.62, pz, 0.7);
+  }
+  boxAt(mats.stone, 0.45, 0.3, LEN, M(side * (HW - 0.22), 6.3, MIDZ));
+}
+
+// instanced books: ~700 books in one draw call, gold bands in another
+{
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lambert(0xffffff), books.length);
+  const col = new THREE.Color();
+  books.forEach((b, i) => { im.setMatrixAt(i, b.m); im.setColorAt(i, col.set(b.c)); });
+  scene.add(im);
+  const bm = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), lambert(0xd8b06a), bands.length);
+  bands.forEach((m, i) => bm.setMatrixAt(i, m));
+  scene.add(bm);
+}
+
+// "My Shelf" plaque
+{
+  const c = canvas(256, 64), g = c.getContext('2d');
+  g.fillStyle = '#3a2412'; g.fillRect(0, 0, 256, 64);
+  g.strokeStyle = '#e2b867'; g.lineWidth = 4; g.strokeRect(6, 6, 244, 52);
+  g.fillStyle = '#ffd98f'; g.font = 'bold 30px Georgia'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('MY SHELF', 128, 34);
+  const plaque = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), new THREE.MeshBasicMaterial({ map: tex(c) }));
+  plaque.position.set(HW - CASE.D / 2 - CASE.D / 2 - 0.16, CASE.H + 0.09, MY_BAY.z);
+  plaque.rotation.y = -Math.PI / 2;
+  scene.add(plaque);
+  glow(0xffd88a, 3.2, HW - 1.1, 2.9, MY_BAY.z, 0.22);
+}
+
+// ---------- the great window ----------
+function archShape(hw, h, rise) {
+  const s = new THREE.Shape();
+  s.moveTo(-hw, 0); s.lineTo(-hw, h);
+  s.quadraticCurveTo(-hw, h + rise * 0.75, 0, h + rise);
+  s.quadraticCurveTo(hw, h + rise * 0.75, hw, h);
+  s.lineTo(hw, 0); s.lineTo(-hw, 0);
+  return s;
+}
+{
+  const WIN = { hw: 1.5, h: 4.0, rise: 1.7, y: 1.5 };
+  const c = canvas(256, 512), g = c.getContext('2d');
+  const sky = g.createLinearGradient(0, 0, 0, 512);
+  sky.addColorStop(0, '#0a1433'); sky.addColorStop(0.6, '#1d3570'); sky.addColorStop(1, '#3b5fa3');
+  g.fillStyle = sky; g.fillRect(0, 0, 256, 512);
+  for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(255,255,240,${rnd(0.3, 1)})`; const s = rand() < 0.15 ? 2 : 1; g.fillRect(rnd(0, 256), rnd(0, 400), s, s); }
+  const mg = g.createRadialGradient(205, 200, 0, 205, 200, 70);
+  mg.addColorStop(0, 'rgba(255,246,220,0.5)'); mg.addColorStop(1, 'rgba(255,246,220,0)');
+  g.fillStyle = mg; g.fillRect(120, 120, 170, 170);
+  g.fillStyle = '#fff6dc'; g.beginPath(); g.arc(205, 200, 22, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#0c1530'; g.beginPath(); g.moveTo(0, 512);
+  for (let x = 0; x <= 256; x += 16) g.lineTo(x, 450 - Math.sin(x * 0.03) * 18 - rnd(0, 14));
+  g.lineTo(256, 512); g.fill();
+  g.fillStyle = '#2b2430'; g.strokeStyle = '#2b2430';
+  g.fillRect(83, 150, 8, 362); g.fillRect(166, 150, 8, 362); g.fillRect(0, 330, 256, 8);
+  g.lineWidth = 8; g.beginPath(); g.arc(128, 95, 42, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.moveTo(87, 150); g.quadraticCurveTo(87, 110, 128, 95); g.quadraticCurveTo(170, 110, 170, 150); g.stroke();
+
+  const glass = new THREE.ShapeGeometry(archShape(WIN.hw, WIN.h, WIN.rise), 16);
+  const pos = glass.attributes.position, uv = glass.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + WIN.hw) / (2 * WIN.hw), pos.getY(i) / (WIN.h + WIN.rise));
+  const win = new THREE.Mesh(glass, new THREE.MeshBasicMaterial({ map: tex(c), fog: false }));
+  win.position.set(0, WIN.y, BACK + 0.02); scene.add(win);
+
+  const surround = new THREE.Mesh(new THREE.ShapeGeometry(archShape(WIN.hw + 0.35, WIN.h + 0.1, WIN.rise + 0.35), 16), mats.stone);
+  surround.position.set(0, WIN.y - 0.25, BACK + 0.01); scene.add(surround);
+  boxAt(mats.stone, 2 * WIN.hw + 0.9, 0.18, 0.5, M(0, WIN.y - 0.2, BACK + 0.2));
+  glow(0x6f8fe0, 9, 0, 4.6, BACK + 0.6, 0.28);
+
+  // moonlight pooled on the floor, with the mullion shadows painted in
+  const sc = canvas(128, 256), sg = sc.getContext('2d');
+  const sgr = sg.createLinearGradient(0, 0, 0, 256);
+  sgr.addColorStop(0, 'rgba(255,255,255,0.9)'); sgr.addColorStop(1, 'rgba(255,255,255,0)');
+  sg.fillStyle = sgr; sg.fillRect(0, 0, 128, 256);
+  sg.clearRect(40, 0, 5, 256); sg.clearRect(83, 0, 5, 256); sg.clearRect(0, 110, 128, 5);
+  const shaftGeo = new THREE.PlaneGeometry(3, 9);
+  const sp = shaftGeo.attributes.position;
+  for (let i = 0; i < sp.count; i++) if (sp.getY(i) < 0) sp.setX(i, sp.getX(i) * 1.7);
+  const shaft = new THREE.Mesh(shaftGeo, new THREE.MeshBasicMaterial({ map: tex(sc), color: 0x8fb0ff, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false }));
+  shaft.rotation.x = -Math.PI / 2; shaft.position.set(0, 0.02, BACK + 4.6); scene.add(shaft);
+}
+
+// ---------- reading nook ----------
+const flickerLights = [];
+function floorLamp(x, z, withLight) {
+  const p = M(x, 0, z);
+  cylAt(mats.brass, 0.22, 0.25, 0.06, 10, M(0, 0.03, 0), p);
+  cylAt(mats.brass, 0.03, 0.03, 2.2, 6, M(0, 1.1, 0), p);
+  add(mats.bulb, new THREE.SphereGeometry(0.08, 8, 6), M(0, 2.16, 0), p);
+  cylAt(mats.shade, 0.17, 0.33, 0.4, 8, M(0, 2.28, 0), p, true);
+  glow(0xffb45e, 2.6, x, 2.2, z, 0.55);
+  if (withLight) {
+    const l = new THREE.PointLight(0xffb46a, 10, 10, 2); l.position.set(x, 2.1, z); scene.add(l);
+    flickerLights.push({ l, base: 10, phase: rand() * 10 });
+  }
+}
+floorLamp(-3.8, 3, true); floorLamp(3.8, 3, false);
+floorLamp(-3.8, -9, false); floorLamp(3.8, -9, true);
+
+// rug
+boxAt(mats.rugBorder, 3.5, 0.02, 4.7, M(0, 0.01, -2));
+boxAt(mats.rug, 3.2, 0.03, 4.4, M(0, 0.015, -2));
+boxAt(mats.rugInner, 2.3, 0.035, 3.4, M(0, 0.02, -2));
+
+// round table with a lamp and a stack of books
+{
+  const tx = 0.3, tz = -2.6, p = M(tx, 0, tz);
+  cylAt(mats.woodDark, 0.32, 0.36, 0.05, 12, M(0, 0.05, 0), p);
+  cylAt(mats.woodDark, 0.06, 0.08, 0.68, 8, M(0, 0.4, 0), p);
+  cylAt(mats.wood, 0.58, 0.58, 0.06, 14, M(0, 0.75, 0), p);
+  cylAt(mats.brass, 0.1, 0.12, 0.05, 8, M(-0.2, 0.8, 0), p);
+  cylAt(mats.brass, 0.02, 0.02, 0.4, 6, M(-0.2, 1.0, 0), p);
+  cylAt(mats.shade, 0.1, 0.2, 0.24, 8, M(-0.2, 1.24, 0), p, true);
+  boxAt(mats.bookB, 0.34, 0.06, 0.26, M(0.2, 0.81, 0.08, 0.2), p);
+  boxAt(mats.bookC, 0.3, 0.05, 0.24, M(0.2, 0.865, 0.08, -0.15), p);
+  boxAt(mats.bookA, 0.28, 0.05, 0.22, M(0.21, 0.915, 0.08, 0.35), p);
+  glow(0xffc477, 1.9, tx - 0.2, 1.18, tz, 0.7);
+  const l = new THREE.PointLight(0xffb46a, 6, 7, 2); l.position.set(tx - 0.2, 1.15, tz); scene.add(l);
+  flickerLights.push({ l, base: 6, phase: 3 });
+}
+
+// velvet armchair, turned toward the table
+{
+  const cx = -1.4, cz = -1.3;
+  const p = M(cx, 0, cz, Math.atan2(0.3 - cx, -2.6 - cz));
+  boxAt(mats.velvet, 1.0, 0.25, 0.9, M(0, 0.45, 0), p);
+  boxAt(mats.velvet, 1.0, 1.0, 0.22, M(0, 0.95, -0.4, 0, -0.12), p);
+  boxAt(mats.velvet, 0.18, 0.55, 0.9, M(-0.5, 0.6, 0), p);
+  boxAt(mats.velvet, 0.18, 0.55, 0.9, M(0.5, 0.6, 0), p);
+  for (const [lx, lz] of [[-0.42, -0.36], [0.42, -0.36], [-0.42, 0.36], [0.42, 0.36]]) boxAt(mats.woodDark, 0.08, 0.32, 0.08, M(lx, 0.16, lz), p);
+}
+
+// sleeping cat on the rug
+{
+  const p = M(1.0, 0.03, -0.9, -0.5);
+  add(mats.cat, new THREE.SphereGeometry(1, 8, 6), M(0, 0.18, 0, 0, 0, 0, 0.38, 0.2, 0.3), p);
+  add(mats.cat, new THREE.SphereGeometry(0.14, 8, 6), M(0.3, 0.17, 0.14), p);
+  add(mats.catLight, new THREE.SphereGeometry(0.07, 6, 4), M(0.38, 0.13, 0.2), p);
+  add(mats.cat, new THREE.ConeGeometry(0.05, 0.1, 4), M(0.26, 0.31, 0.1, 0, 0, 0.3), p);
+  add(mats.cat, new THREE.ConeGeometry(0.05, 0.1, 4), M(0.36, 0.3, 0.2, 0, 0, -0.3), p);
+  add(mats.cat, new THREE.TorusGeometry(0.33, 0.05, 5, 10, Math.PI * 0.9), M(0, 0.05, 0, 0, Math.PI / 2, 0), p);
+}
+
+// merge every bucket into one mesh per material
+for (const [mat, geoms] of buckets) scene.add(new THREE.Mesh(mergeGeometries(geoms), mat));
+
+// ---------- lights: no shadows anywhere ----------
+scene.add(new THREE.HemisphereLight(0x7d95d6, 0x5a3a24, 1.1));
+const moon = new THREE.DirectionalLight(0x9fb6ff, 0.9);
+moon.position.set(0, 8, BACK - 6); scene.add(moon);
+
+// drifting dust motes
+const MOTES = 120;
+const motePos = new Float32Array(MOTES * 3);
+for (let i = 0; i < MOTES; i++) motePos.set([rnd(-3, 3), rnd(0.5, 6), rnd(-13, 6)], i * 3);
+const moteGeo = new THREE.BufferGeometry();
+moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+scene.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ size: 0.07, map: GLOW, color: 0xffe2b0, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false })));
+
+// ---------- camera and rendering on demand ----------
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const VIEWS = {
+  hall: { pos: V(0, 2.1, 8.2), look: V(0, 2.6, -8) },
+  shelf: { pos: V(-0.8, 2.8, MY_BAY.z), look: V(HW, 2.7, MY_BAY.z) },
+};
+const curPos = VIEWS.hall.pos.clone(), curLook = VIEWS.hall.look.clone();
+let tween = null, viewName = 'hall';
+const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+const btn = document.getElementById('go');
+btn.onclick = () => {
+  viewName = viewName === 'hall' ? 'shelf' : 'hall';
+  tween = { pos: curPos.clone(), look: curLook.clone(), to: VIEWS[viewName], t0: performance.now() };
+  btn.textContent = viewName === 'hall' ? 'Go to my shelf' : 'Back to the hall';
+};
+
+const par = { x: 0, y: 0, tx: 0, ty: 0 };
+addEventListener('pointermove', (e) => { par.tx = e.clientX / innerWidth - 0.5; par.ty = e.clientY / innerHeight - 0.5; });
+
+let dirty = true;
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); dirty = true;
+});
+
+const ambient = document.getElementById('ambient');
+ambient.onchange = () => { dirty = true; };
+const stats = document.getElementById('stats');
+const right = new THREE.Vector3();
+let lastAmbient = 0, rendered = 0, statT = performance.now(), calls = 0, tris = 0;
+
+function ambientTick(t) {
+  for (const f of flickerLights) f.l.intensity = f.base * (0.92 + 0.08 * Math.sin(t * 7 + f.phase) * Math.sin(t * 3.1 + f.phase));
+  for (const g of glows) { const k = 1 + 0.05 * Math.sin(t * 6 + g.phase); g.s.scale.set(g.base * k, g.base * k, 1); }
+  for (let i = 0; i < MOTES; i++) {
+    let y = motePos[i * 3 + 1] + 0.004;
+    if (y > 6) y = 0.5;
+    motePos[i * 3 + 1] = y;
+    motePos[i * 3] += Math.sin(t * 0.5 + i) * 0.002;
+  }
+  moteGeo.attributes.position.needsUpdate = true;
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t = now / 1000;
+  let moving = false;
+
+  if (tween) {
+    const k = Math.min(1, (now - tween.t0) / 1600), e = ease(k);
+    curPos.lerpVectors(tween.pos, tween.to.pos, e);
+    curPos.y += Math.sin(Math.PI * k) * 0.4;
+    curLook.lerpVectors(tween.look, tween.to.look, e);
+    if (k === 1) tween = null;
+    moving = true;
+  }
+  par.x += (par.tx - par.x) * 0.1; par.y += (par.ty - par.y) * 0.1;
+  if (Math.abs(par.tx - par.x) + Math.abs(par.ty - par.y) > 0.0005) moving = true;
+
+  // ambient flicker runs at a gentle 12 fps instead of 60
+  if (ambient.checked && t - lastAmbient > 1 / 12) { lastAmbient = t; ambientTick(t); dirty = true; }
+
+  if (moving || dirty) {
+    camera.position.copy(curPos);
+    right.subVectors(curLook, curPos).cross(camera.up).normalize();
+    camera.position.addScaledVector(right, par.x * 0.35);
+    camera.position.y -= par.y * 0.2;
+    camera.lookAt(curLook);
+    renderer.render(scene, camera);
+    calls = renderer.info.render.calls; tris = renderer.info.render.triangles;
+    rendered++; dirty = false;
+  }
+
+  if (now - statT > 1000) {
+    stats.textContent = `${calls} draw calls · ${(tris / 1000).toFixed(1)}k triangles · ${rendered} frames drawn/s`;
+    rendered = 0; statT = now;
+  }
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

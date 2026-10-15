@@ -1,31 +1,24 @@
 /**
- * Synthesised sound effects for a hushed, slightly magical library: no audio
- * files needed. Everything runs through a soft "room" echo so the sounds feel
- * like they happen in a big wooden hall.
+ * Chiptune sound effects, synthesised with the Web Audio API in the style of
+ * an 8-bit console: square and triangle waves plus little noise bursts.
+ * No audio files needed.
  */
 
 let ctx: AudioContext | null = null;
-let room: AudioNode | null = null;
+let master: GainNode | null = null;
 let noise: AudioBuffer | null = null;
 
 function audio(): AudioContext | null {
   try {
     if (!ctx) {
       ctx = new AudioContext();
-      // a gentle feedback delay, darkened with a low-pass, standing in for reverb
-      const input = ctx.createGain();
-      const delay = ctx.createDelay(1);
-      delay.delayTime.value = 0.19;
-      const feedback = ctx.createGain();
-      feedback.gain.value = 0.38;
-      const tone = ctx.createBiquadFilter();
-      tone.type = 'lowpass';
-      tone.frequency.value = 2200;
-      const wet = ctx.createGain();
-      wet.gain.value = 0.32;
-      input.connect(delay).connect(tone).connect(feedback).connect(delay);
-      tone.connect(wet).connect(ctx.destination);
-      room = input;
+      master = ctx.createGain();
+      master.gain.value = 0.5;
+      // a touch of low-pass keeps the square waves from being harsh
+      const soften = ctx.createBiquadFilter();
+      soften.type = 'lowpass';
+      soften.frequency.value = 6000;
+      master.connect(soften).connect(ctx.destination);
     }
     if (ctx.state === 'suspended') void ctx.resume();
     return ctx;
@@ -34,101 +27,94 @@ function audio(): AudioContext | null {
   }
 }
 
-function out(ac: AudioContext, node: AudioNode) {
-  node.connect(ac.destination);
-  if (room) node.connect(room);
-}
+const NOTE = (n: string) => {
+  const names: Record<string, number> = { C: -9, D: -7, E: -5, F: -4, G: -2, A: 0, B: 2 };
+  const m = /^([A-G])(#?)(\d)$/.exec(n)!;
+  return 440 * 2 ** ((names[m[1]] + (m[2] ? 1 : 0) + (Number(m[3]) - 4) * 12) / 12);
+};
 
-function noiseBuffer(ac: AudioContext) {
-  if (!noise) {
-    noise = ac.createBuffer(1, ac.sampleRate * 1, ac.sampleRate);
-    const data = noise.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  }
-  return noise;
-}
-
-/** A bell-like partial: sine with a slow exponential decay. */
-function bell(freq: number, start: number, dur: number, vol: number, type: OscillatorType = 'sine') {
+/** One chip-style note with a short attack and decay. */
+function note(freq: number, start: number, dur: number, vol = 0.12, type: OscillatorType = 'square', slideTo?: number) {
   const ac = audio();
-  if (!ac) return;
+  if (!ac || !master) return;
   const t0 = ac.currentTime + start;
   const osc = ac.createOscillator();
   const gain = ac.createGain();
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t0);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
   gain.gain.setValueAtTime(0.0001, t0);
-  gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+  gain.gain.linearRampToValueAtTime(vol, t0 + 0.005);
+  gain.gain.setValueAtTime(vol, t0 + dur * 0.6);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(gain);
-  out(ac, gain);
+  osc.connect(gain).connect(master);
   osc.start(t0);
-  osc.stop(t0 + dur + 0.05);
+  osc.stop(t0 + dur + 0.02);
 }
 
-/** Filtered noise burst: footsteps, paper, thumps. */
-function rustle(start: number, dur: number, vol: number, filter: BiquadFilterType, freq: number, endFreq = freq, q = 0.8) {
+/** Short burst of filtered noise: steps, paper, thumps. */
+function hiss(start: number, dur: number, vol: number, freq: number, type: BiquadFilterType = 'bandpass') {
   const ac = audio();
-  if (!ac) return;
+  if (!ac || !master) return;
+  if (!noise) {
+    noise = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
+    const d = noise.getChannelData(0);
+    // stepped noise sounds more "8-bit" than smooth white noise
+    let v = 0;
+    for (let i = 0; i < d.length; i++) {
+      if (i % 4 === 0) v = Math.random() * 2 - 1;
+      d[i] = v;
+    }
+  }
   const t0 = ac.currentTime + start;
   const src = ac.createBufferSource();
-  src.buffer = noiseBuffer(ac);
+  src.buffer = noise;
   const f = ac.createBiquadFilter();
-  f.type = filter;
-  f.Q.value = q;
-  f.frequency.setValueAtTime(freq, t0);
-  f.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+  f.type = type;
+  f.frequency.value = freq;
   const gain = ac.createGain();
-  gain.gain.setValueAtTime(0.0001, t0);
-  gain.gain.exponentialRampToValueAtTime(vol, t0 + Math.min(0.02, dur / 4));
+  gain.gain.setValueAtTime(vol, t0);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  src.connect(f).connect(gain);
-  out(ac, gain);
-  src.start(t0, Math.random() * 0.5);
-  src.stop(t0 + dur + 0.05);
+  src.connect(f).connect(gain).connect(master);
+  src.start(t0);
+  src.stop(t0 + dur + 0.02);
 }
 
-/** A new book materialises: a shimmering celesta glissando. */
+/** "Item get!" fanfare when a new book appears. */
 export function playPop() {
-  const notes = [1046.5, 1318.5, 1568, 2093, 2637];
-  notes.forEach((f, i) => {
-    bell(f, i * 0.045, 0.9, 0.05);
-    bell(f * 2.01, i * 0.045, 0.4, 0.012); // bright overtone
-  });
-  rustle(0, 0.5, 0.025, 'highpass', 6000, 9000);
+  const seq = ['G4', 'C5', 'E5', 'G5', 'C6'];
+  seq.forEach((n, i) => note(NOTE(n), i * 0.07, 0.12, 0.09));
+  note(NOTE('E6'), seq.length * 0.07, 0.35, 0.09);
+  note(NOTE('C4'), 0, 0.5, 0.08, 'triangle');
 }
 
-/** The book settles onto the shelf: a soft wooden knock and a warm bell. */
+/** Coin-style "ding" when the book lands on the shelf. */
 export function playChime() {
-  rustle(0, 0.09, 0.22, 'lowpass', 900, 300, 1.2);
-  bell(110, 0, 0.18, 0.18);
-  bell(784, 0.03, 1.6, 0.06);
-  bell(1174.7, 0.05, 1.4, 0.035);
-  bell(1568, 0.07, 1.2, 0.02);
+  hiss(0, 0.06, 0.25, 400, 'lowpass'); // little thud
+  note(NOTE('B5'), 0.02, 0.07, 0.1);
+  note(NOTE('E6'), 0.09, 0.3, 0.1);
 }
 
-/** Unhurried footsteps on wooden boards while the camera walks. */
-export function playFootsteps(steps = 6) {
-  for (let i = 0; i < steps; i++) {
-    const t = 0.25 + i * 0.47 + Math.random() * 0.04;
-    rustle(t, 0.12, 0.16, 'lowpass', 520, 180, 1.4);
-    bell(70 + Math.random() * 10, t, 0.1, 0.07);
-  }
+/** Swoop for the iris wipe between the hall and the shelf, with two soft steps. */
+export function playTransition() {
+  note(NOTE('C5'), 0, 0.4, 0.05, 'triangle', NOTE('C6'));
+  hiss(0.05, 0.05, 0.15, 300, 'lowpass');
+  hiss(0.3, 0.05, 0.15, 300, 'lowpass');
 }
 
-/** A page turning: a quick sweep of paper noise. */
+/** Page turn: a quick paper blip. */
 export function playPageTurn() {
-  rustle(0, 0.28, 0.05, 'bandpass', 2500, 5200, 0.7);
-  rustle(0.06, 0.18, 0.03, 'highpass', 4000, 7000);
+  hiss(0, 0.08, 0.12, 3500);
+  note(NOTE('A5'), 0.02, 0.04, 0.03);
 }
 
-/** Opening a book: a soft thump of boards and a breath of pages. */
+/** Opening a book: two rising chirps. */
 export function playOpenBook() {
-  rustle(0, 0.12, 0.15, 'lowpass', 700, 200, 1.1);
-  rustle(0.08, 0.35, 0.04, 'bandpass', 1800, 4200, 0.6);
+  note(NOTE('E5'), 0, 0.07, 0.08);
+  note(NOTE('A5'), 0.08, 0.12, 0.08);
 }
 
-/** Quiet wooden tick for buttons. */
+/** Button click. */
 export function playClick() {
-  rustle(0, 0.05, 0.08, 'bandpass', 1800, 1200, 2);
+  note(NOTE('C6'), 0, 0.03, 0.05);
 }

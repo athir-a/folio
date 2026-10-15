@@ -2,20 +2,14 @@ import { create } from 'zustand';
 import * as db from '../db/libraryDb';
 import type { BookRecord } from '../db/libraryDb';
 import { extractBookInfo } from '../pdf/pdf';
-import { playChime, playOpenBook, playPop } from '../lib/sfx';
+import { playChime, playOpenBook } from '../lib/sfx';
 import { useSettings } from './settingsStore';
 import { useView } from './viewStore';
 
 /**
- * Central library state. UI, the 3D scene and (later) gesture input all call
+ * Central library state. The UI, the pixel scenes and (later) gesture input all call
  * these actions, so new input methods only need to call e.g. `openBook`.
  */
-
-export interface Burst {
-  id: number;
-  position: [number, number, number];
-  color: string;
-}
 
 export interface Toast {
   key: number;
@@ -29,13 +23,11 @@ interface LibraryState {
   books: BookRecord[];
   coverUrls: Record<string, string>;
   loaded: boolean;
-  /** Books currently playing their "arrive on shelf" animation. */
+  /** Books waiting for, or playing, their "new book" animation on the shelf. */
   entering: Record<string, true>;
   busy: number;
   selectedId: string | null;
   readerOpen: boolean;
-  bursts: Burst[];
-  shakeAt: number;
   toast: Toast | null;
 
   init: () => Promise<void>;
@@ -44,16 +36,14 @@ interface LibraryState {
   openBook: (id: string) => void;
   closeBook: () => void;
   setLastPage: (id: string, page: number) => void;
-  land: (id: string, position: [number, number, number], color: string) => void;
+  /** Called by the shelf scene the moment a new book hits the shelf. */
+  land: (id: string) => void;
   finishEnter: (id: string) => void;
-  removeBurst: (id: number) => void;
   showToast: (toast: Omit<Toast, 'key'>) => void;
   dismissToast: () => void;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let initPromise: Promise<void> | null = null;
-let burstId = 0;
 let toastKey = 0;
 const pageWrites = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -67,8 +57,6 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   busy: 0,
   selectedId: null,
   readerOpen: false,
-  bursts: [],
-  shakeAt: -Infinity,
   toast: null,
 
   init() {
@@ -96,7 +84,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     // new books are shelved in front of the visitor, so walk to the shelf first
     await useView.getState().whenAtShelf();
 
-    for (const [i, file] of pdfs.entries()) {
+    for (const file of pdfs) {
       if (get().books.some((b) => b.fileName === file.name && b.fileSize === file.size)) {
         get().showToast({ kind: 'info', title: 'Already on your shelf', subtitle: file.name });
         continue;
@@ -122,15 +110,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           coverUrls: coverUrl ? { ...s.coverUrls, [record.id]: coverUrl } : s.coverUrls,
           entering: { ...s.entering, [record.id]: true },
         }));
-        if (!muted()) playPop();
       } catch (err) {
         console.error(err);
         get().showToast({ kind: 'error', title: 'Could not read that PDF', subtitle: file.name });
       } finally {
         set((s) => ({ busy: s.busy - 1 }));
       }
-      // Let each book finish its entrance before the next one pops in.
-      if (i < pdfs.length - 1) await sleep(1400);
     }
   },
 
@@ -154,10 +139,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     if (get().entering[id] || get().selectedId) return;
     set({ selectedId: id });
     if (!muted()) playOpenBook();
-    // Let the book fly towards the camera before the pages open.
+    // let the book slide off the shelf before the pages open
     setTimeout(() => {
       if (get().selectedId === id) set({ readerOpen: true });
-    }, 650);
+    }, 420);
   },
 
   closeBook() {
@@ -176,14 +161,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     );
   },
 
-  land(id, position, color) {
+  land(id) {
     const s = get();
     const index = s.books.findIndex((b) => b.id === id);
     if (!muted()) playChime();
-    set({
-      bursts: [...s.bursts, { id: ++burstId, position, color }],
-      shakeAt: performance.now(),
-    });
     if (index >= 0) {
       s.showToast({
         kind: 'new-book',
@@ -200,10 +181,6 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       delete entering[id];
       return { entering };
     });
-  },
-
-  removeBurst(id) {
-    set((s) => ({ bursts: s.bursts.filter((b) => b.id !== id) }));
   },
 
   showToast(toast) {

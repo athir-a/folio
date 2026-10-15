@@ -1,10 +1,10 @@
 # Folio
 
-A candlelit library among the stars. You arrive in a great hall at night:
-two storeys of walnut bookcases, a gothic window onto a moonlit valley,
-armchairs, lamps and lanterns. Press **Go to my shelf** and you walk down the
-hall to your own bookcase. Every PDF you add is bound into a book and shelved
-there with a little stardust. Click a book to read it.
+A cosy pixel-art library. You arrive in a lamp-lit hall at night: tall
+bookcases, a big arched window full of stars, a sleeping cat on the rug. Press
+**Go to my shelf** (or click the shelf marked *My Shelf*) and an iris wipe takes
+you to your own bookcase. Every PDF you add pops up with a little "NEW BOOK!"
+fanfare and lands on the shelf, its title stamped down the spine. Click a book to read it.
 
 Everything is stored locally in your browser (IndexedDB). Nothing is uploaded anywhere.
 
@@ -16,95 +16,76 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
 ```
 
-`/#shelf` opens straight at your shelf, and the browser's Back button walks you back to the hall.
+`/#shelf` opens straight at your shelf, and the browser's Back button returns to the hall.
 
-## Tech stack
+## How it's drawn
 
-| Concern                                | Tech                                               |
-| -------------------------------------- | -------------------------------------------------- |
-| App UI and state                       | React, TypeScript, Vite, Zustand                   |
-| 3D hall, books, animations             | Three.js, React Three Fiber, drei                  |
-| Ambient occlusion, bloom, tone mapping | @react-three/postprocessing (N8AO)                 |
-| Materials                              | CC0 scans from [Poly Haven](https://polyhaven.com) |
-| Reading PDFs                           | PDF.js (`pdfjs-dist`)                              |
-| Local storage                          | IndexedDB (via `idb`)                              |
-| Sound                                  | Web Audio, synthesised (no audio files)            |
-| Hand gestures *(planned)*              | MediaPipe and OpenCV                               |
+The scenes are drawn on a small canvas (about 400×250 "art pixels") that is
+scaled up by a whole number, so every pixel stays crisp and square. All the art
+(walls, bookcases, the window and sky, lamps, the cat) is drawn in code from one
+palette, so there are no image files and nothing heavy to download. It runs
+happily on laptops and phones.
 
-## Graphics quality
-
-The **HQ / Fast** button switches between the full look (ambient occlusion,
-floor reflections, high-resolution soft shadows, high pixel density) and a
-lighter mode for laptops and phones. The choice is remembered.
+| Concern                | Tech                                         |
+| ---------------------- | -------------------------------------------- |
+| App UI and state       | React, TypeScript, Vite, Zustand             |
+| Pixel scenes           | Canvas 2D, hand-written 5×7 and 3×5 fonts    |
+| Reading PDFs           | PDF.js (`pdfjs-dist`)                        |
+| Local storage          | IndexedDB (via `idb`)                        |
+| Sound                  | Web Audio, chiptune-style, synthesised       |
+| Hand gestures *(planned)* | MediaPipe and OpenCV                      |
 
 ## Project structure
 
 ```
 src/
 ├── main.tsx                 Entry point
-├── App.tsx                  Puts the 3D scene and the overlays together
+├── App.tsx                  Puts the pixel stage and the HTML overlays together
 │
 ├── state/                   Zustand stores: the single source of truth
 │   ├── libraryStore.ts      Books and their actions: addFiles, openBook, setLastPage, …
-│   ├── viewStore.ts         Where you're standing: 'hall' or 'shelf' (synced with #shelf)
-│   └── settingsStore.ts     Sound on/off, graphics quality
+│   ├── viewStore.ts         Where you are: 'hall' or 'shelf' (synced with #shelf)
+│   └── settingsStore.ts     Sound on/off
 │
 ├── db/libraryDb.ts          IndexedDB: book metadata, PDF files, cover images
 ├── pdf/pdf.ts               PDF.js setup, title/author/cover extraction, spine colour
 │
-├── scene/                   Everything 3D
-│   ├── LibraryScene.tsx     <Canvas>, haze, post-processing
-│   ├── camera/
-│   │   └── CameraRig.tsx    Walks between the hall and the shelf; idle mouse drift
-│   ├── hall/                The library itself
-│   │   ├── layout.ts        Dimensions: nave, bays, balcony, window, which bay is yours
-│   │   ├── Hall.tsx         Assembles everything below
-│   │   ├── materials.ts     Shared walnut, brass, iron, velvet, plaster
-│   │   ├── Architecture.tsx Floor, walls, ribbed vault, pilasters, balconies, railings
-│   │   ├── GothicWindow.tsx Iron tracery, glass, sill, banner
-│   │   ├── NightSky.tsx     Painted valley and city, twinkling stars and lights
-│   │   ├── Bookcases.tsx    ~11,000 antique books in one instanced mesh
-│   │   ├── Furniture.tsx    Sofa, armchairs, tables, lamps, lanterns, rugs
-│   │   └── HallLighting.tsx Moonlight, window glow, sconces, night reflections, dust
-│   ├── shelf/               Your own bookcase
-│   │   ├── layout.ts        Shelf dimensions and where each book goes
-│   │   ├── Bookshelf.tsx    The walnut bookcase (wobbles when a book lands)
-│   │   ├── UserBay.tsx      Brass plaque, picture light, spotlight, golden motes
-│   │   ├── Books.tsx        Maps library books onto shelf slots
-│   │   ├── Book.tsx         One book's behaviour: arrival animation, hover, fly-to-reader
-│   │   └── BookModel.tsx    One book's looks: boards, page block, foil-stamped spine
-│   ├── effects/
-│   │   └── LandingBursts.tsx  Stardust and a golden ring when a book lands
-│   └── utils/
-│       ├── assets.ts        Loaders for the textures in public/assets
-│       ├── geometry.ts      Merging pieces into one mesh, world-scale UVs, pointed arches
-│       ├── textures.ts      Canvas-painted textures (spines, sky, rug, banner, plaque)
-│       └── easing.ts        Easing curves for the animations
+├── pixel/                   Everything drawn on the canvas
+│   ├── PixelStage.tsx       The canvas: scaling, frame loop, input, iris wipe, tooltip
+│   ├── palette.ts           The colour palette everything is drawn from
+│   ├── font.ts              Bitmap fonts (5×7 and compact 3×5), incl. vertical spine text
+│   ├── draw.ts              Pixel helpers: rects, dithering, glows, arches, seeded random
+│   ├── props.ts             Bookcases, window & night sky, lamps, candles, rug, chair, cat…
+│   ├── particles.ts         Stardust, dust puffs, drifting motes, floating "+1"
+│   ├── books.ts             Book colours (snapped to the palette) and spine sizes
+│   └── scenes/
+│       ├── types.ts         The Scene interface
+│       ├── hallScene.ts     The library hall (the dashboard)
+│       └── shelfScene.ts    Your shelf: layout, spines, hover, the "NEW BOOK!" moment
 │
 ├── ui/                      HTML overlays on top of the canvas
-│   ├── hall/HallOverlay.tsx      Title, verse, "Go to my shelf"
+│   ├── hall/HallOverlay.tsx      Title sign, "Go to my shelf"
 │   ├── shelf/                    "Back to the hall", "Add a book", empty-shelf hint
 │   ├── reader/                   Reader (page navigation) and PdfPage (renders one page)
-│   └── common/                   Settings buttons, toast, drag-and-drop, loading screen
+│   └── common/                   Sound toggle, toast, drag-and-drop
 │
 ├── lib/                     Small framework-free helpers (colour, random, sound effects)
-└── styles/global.css        Midnight / walnut / antique-gold theme
-public/assets/               Scanned PBR textures (CC0, see CREDITS.md)
-docs/reference/              Mood-board images the hall and shelf are based on
+└── styles/global.css        Pixel panels, bevelled buttons, stepped animations
+docs/reference/              Mood-board images
 ```
 
 ### How the pieces talk to each other
 
 ```
- UI (ui/)  ──┐                       ┌──► db/ (IndexedDB)
-             ├──►  state/ stores  ───┤
- 3D (scene/) ┘                       └──► pdf/ (PDF.js)
+ UI (ui/)     ──┐                       ┌──► db/ (IndexedDB)
+                ├──►  state/ stores  ───┤
+ pixel scenes ──┘                       └──► pdf/ (PDF.js)
 ```
 
-The UI and the 3D scene never call each other directly. They read from and
-call actions on the stores. Future input methods (hand gestures, voice,
-keyboard shortcuts) can work the same way: a gesture module only needs to call
-`useView.goTo('shelf')`, `openBook(id)`, `closeBook()` or `setLastPage(id, page)`.
+The UI and the scenes never call each other directly. They read from and call
+actions on the stores. Future input methods (hand gestures, voice, keyboard
+shortcuts) can work the same way: a gesture module only needs to call
+`useView.getState().goTo('shelf')`, `openBook(id)`, `closeBook()` or `setLastPage(id, page)`.
 
 ## Adding hand gestures later
 

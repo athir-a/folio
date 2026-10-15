@@ -6,7 +6,7 @@ export function EmptyShelfHint() {
   return (
     <div className="empty-hint">
       <strong>An empty shelf, ready for stories</strong>
-      <span>Add a PDF, or drop one anywhere, and it will be bound and shelved here</span>
+      <span>Add a PDF, or drop one anywhere, and it will be shelved here</span>
     </div>
   );
 }
