@@ -4,23 +4,28 @@ import { create } from 'zustand';
 
 interface SettingsState {
   muted: boolean;
+  /** Turn pages by waving at the webcam while reading. */
+  gestures: boolean;
   toggleMute: () => void;
+  toggleGestures: () => void;
 }
+
+type Saved = Pick<SettingsState, 'muted' | 'gestures'>;
 
 const KEY = 'cozy-library:settings';
 
-function load(): Pick<SettingsState, 'muted'> {
+function load(): Saved {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { muted: saved.muted === true };
+    return { muted: saved.muted === true, gestures: saved.gestures === true };
   } catch {
-    return { muted: false };
+    return { muted: false, gestures: false };
   }
 }
 
-function save(state: Pick<SettingsState, 'muted'>) {
+function save(state: Saved) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ muted: state.muted }));
+    localStorage.setItem(KEY, JSON.stringify({ muted: state.muted, gestures: state.gestures }));
   } catch {
     /* storage unavailable */
   }
@@ -30,6 +35,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
   ...load(),
   toggleMute() {
     set({ muted: !get().muted });
+    save(get());
+  },
+  toggleGestures() {
+    set({ gestures: !get().gestures });
     save(get());
   },
 }));

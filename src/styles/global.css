@@ -645,6 +645,84 @@ button {
   box-shadow: 0 0 0 var(--px) var(--ink);
 }
 
+.reader__action--on {
+  background: var(--gold-dark);
+  color: var(--glow);
+}
+
+/* webcam preview for wave-to-turn, tucked in the corner above the footer */
+.gesture-panel {
+  position: absolute;
+  right: 18px;
+  bottom: 70px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.gesture-panel__view {
+  position: relative;
+  width: 160px;
+  height: 120px;
+  overflow: hidden;
+  background: var(--night0);
+  box-shadow:
+    0 0 0 var(--px) var(--ink),
+    0 0 0 calc(var(--px) * 2) var(--wood5),
+    0 0 0 calc(var(--px) * 3) var(--ink);
+}
+
+.gesture-panel__view video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirrored, so it moves the way you do */
+  opacity: 0.75;
+}
+
+/* where the camera sees movement */
+.gesture-panel__marker {
+  position: absolute;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: var(--lamp);
+  box-shadow: 0 0 0 2px var(--ink);
+  opacity: 0;
+}
+
+.gesture-panel__flash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-title);
+  font-size: 16px;
+  color: var(--glow);
+  text-shadow: 2px 2px 0 var(--ink);
+  background: rgba(255, 210, 122, 0.25);
+  animation: fade-out 0.6s steps(4) both;
+}
+
+.gesture-panel__hint {
+  max-width: 200px;
+  font-family: var(--font-title);
+  font-size: 10px;
+  text-align: right;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
 /* ---------- keyframes (stepped, for that pixel feel) ---------- */
 
 @keyframes spin {

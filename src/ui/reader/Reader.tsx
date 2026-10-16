@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getBookFile } from '../../db/libraryDb';
+import { getBookFile, type Annotation } from '../../db/libraryDb';
 import { openPdf, type OpenedPdf, type PdfDocument } from '../../pdf/pdf';
 import { playPageTurn } from '../../lib/sfx';
+import { HIGHLIGHT_COLOURS, useAnnotations, type Tool } from '../../state/annotationStore';
 import { useLibrary } from '../../state/libraryStore';
 import { useSettings } from '../../state/settingsStore';
-import { PdfPage } from './PdfPage';
+import { CommentsPanel } from './CommentsPanel';
+import { GesturePanel } from './GesturePanel';
+import { Icon, type IconName } from './Icon';
+import { MAX_ZOOM, MIN_ZOOM, PdfViewer, type ViewerHandle, type Zoom } from './PdfViewer';
+
+/** PDF points are 1/72", screens are 96 px per inch: this is "100%". */
+const ACTUAL_SIZE = 96 / 72;
+
+const TOOLS: { id: Tool; icon: IconName; label: string }[] = [
+  { id: 'select', icon: 'cursor', label: 'Select text' },
+  { id: 'highlight', icon: 'highlighter', label: 'Highlight' },
+  { id: 'note', icon: 'note', label: 'Sticky note' },
+];
 
 /** Full-screen reading view. Opens once a book has flown off the shelf. */
 export function Reader() {
@@ -12,17 +25,20 @@ export function Reader() {
   const closeBook = useLibrary((s) => s.closeBook);
   const removeBook = useLibrary((s) => s.removeBook);
   const setLastPage = useLibrary((s) => s.setLastPage);
+  const gestures = useSettings((s) => s.gestures);
+  const toggleGestures = useSettings((s) => s.toggleGestures);
+  const { tool, colour, panelOpen, list } = useAnnotations();
+  const { setTool, setColour, setPanelOpen, setActive } = useAnnotations.getState();
   const [doc, setDoc] = useState<PdfDocument | null>(null);
   const [error, setError] = useState(false);
+  const [zoom, setZoom] = useState<Zoom>('fit');
+  const [scale, setScale] = useState(1);
+  const viewer = useRef<ViewerHandle>(null);
   const bookId = book?.id;
   const pageCount = doc?.numPages ?? book?.pageCount ?? 1;
-  // The store owns the current page, so anything (buttons, keys, future gestures)
-  // can turn pages by calling setLastPage.
   const page = Math.min(pageCount, Math.max(1, book?.lastPage ?? 1));
-
-  // Remember which way we last turned, for the page-turn animation.
-  const turn = useRef<{ page: number; direction: 'next' | 'prev' }>({ page, direction: 'next' });
-  if (turn.current.page !== page) turn.current = { page, direction: page > turn.current.page ? 'next' : 'prev' };
+  // the page to open at, fixed when the book opens
+  const [startPage, setStartPage] = useState(page);
 
   useEffect(() => {
     if (!bookId) return;
@@ -30,6 +46,9 @@ export function Reader() {
     let opened: OpenedPdf | null = null;
     setDoc(null);
     setError(false);
+    setZoom('fit');
+    setStartPage(useLibrary.getState().books.find((b) => b.id === bookId)?.lastPage ?? 1);
+    void useAnnotations.getState().load(bookId);
     (async () => {
       const blob = await getBookFile(bookId);
       if (!blob) throw new Error('missing file');
@@ -43,38 +62,50 @@ export function Reader() {
     return () => {
       cancelled = true;
       void opened?.close();
+      useAnnotations.getState().setTool('select');
     };
   }, [bookId]);
 
+  /** Jumps to a page (buttons, keys, the page box and hand gestures all come through here). */
   const goTo = useCallback(
     (n: number) => {
-      if (!bookId) return;
       const next = Math.min(pageCount, Math.max(1, Math.round(n) || 1));
       if (next === page) return;
-      setLastPage(bookId, next);
+      viewer.current?.scrollToPage(next);
       if (!useSettings.getState().muted) playPageTurn();
     },
-    [bookId, page, pageCount, setLastPage],
+    [page, pageCount],
   );
+
+  const onPageChange = useCallback((n: number) => bookId && setLastPage(bookId, n), [bookId, setLastPage]);
+  const onJump = useCallback((a: Annotation) => viewer.current?.scrollToPage(a.page, a.y ?? a.rects?.[0]?.y ?? 0), []);
+
+  const zoomBy = (factor: number) => setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(scale * factor * 100) / 100)));
 
   useEffect(() => {
     if (!bookId) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') goTo(page + 1);
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') goTo(page - 1);
-      else if (e.key === 'Escape') closeBook();
-      else return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'ArrowRight') goTo(page + 1);
+      else if (e.key === 'ArrowLeft') goTo(page - 1);
+      else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) zoomBy(1.25);
+      else if ((e.ctrlKey || e.metaKey) && e.key === '-') zoomBy(0.8);
+      else if (e.key === 'Escape') {
+        const s = useAnnotations.getState();
+        if (s.activeId) s.setActive(null);
+        else if (s.tool !== 'select') s.setTool('select');
+        else closeBook();
+      } else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [bookId, page, goTo, closeBook]);
+  });
 
   if (!book) return null;
 
   const onDelete = async () => {
-    if (window.confirm(`Remove "${book.title}" from your shelf? This deletes the saved PDF.`)) {
+    if (window.confirm(`Remove "${book.title}" from your shelf? This deletes the saved PDF and its notes.`)) {
       await removeBook(book.id);
     }
   };
@@ -95,42 +126,99 @@ export function Reader() {
         </button>
       </header>
 
-      <main className="reader__stage">
-        <button className="reader__turn reader__turn--prev" onClick={() => goTo(page - 1)} disabled={page <= 1} aria-label="Previous page">
-          ‹
-        </button>
+      <div className="reader__toolbar" role="toolbar" aria-label="Reading tools">
+        <div className="tool-group">
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              className={`icon-btn ${tool === t.id ? 'icon-btn--on' : ''}`}
+              onClick={() => setTool(t.id)}
+              aria-pressed={tool === t.id}
+              title={t.label}
+            >
+              <Icon name={t.icon} />
+              <span className="icon-btn__label">{t.label}</span>
+            </button>
+          ))}
+          {tool === 'highlight' &&
+            HIGHLIGHT_COLOURS.map((c) => (
+              <button key={c} className={`swatch ${c === colour ? 'swatch--on' : ''}`} style={{ background: c }} onClick={() => setColour(c)} aria-label="Highlight colour" />
+            ))}
+        </div>
+
+        <div className="tool-group">
+          <button className="icon-btn" onClick={() => goTo(page - 1)} disabled={page <= 1} aria-label="Previous page" title="Previous page (←)">
+            <Icon name="prev" />
+          </button>
+          <label className="page-box">
+            <input
+              key={page}
+              type="number"
+              min={1}
+              max={pageCount}
+              defaultValue={page}
+              aria-label="Page number"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') goTo(Number(e.currentTarget.value));
+              }}
+              onBlur={(e) => goTo(Number(e.currentTarget.value))}
+            />
+            <span>/ {pageCount}</span>
+          </label>
+          <button className="icon-btn" onClick={() => goTo(page + 1)} disabled={page >= pageCount} aria-label="Next page" title="Next page (→)">
+            <Icon name="next" />
+          </button>
+        </div>
+
+        <div className="tool-group">
+          <button className="icon-btn" onClick={() => zoomBy(0.8)} aria-label="Zoom out" title="Zoom out (Ctrl −)">
+            <Icon name="minus" />
+          </button>
+          <span className="zoom-label">{Math.round((scale / ACTUAL_SIZE) * 100)}%</span>
+          <button className="icon-btn" onClick={() => zoomBy(1.25)} aria-label="Zoom in" title="Zoom in (Ctrl +)">
+            <Icon name="plus" />
+          </button>
+          <button className={`icon-btn ${zoom === 'fit' ? 'icon-btn--on' : ''}`} onClick={() => setZoom('fit')} title="Fit to width">
+            <Icon name="fit" />
+            <span className="icon-btn__label">Fit width</span>
+          </button>
+        </div>
+
+        <div className="tool-group tool-group--end">
+          <button className={`icon-btn ${gestures ? 'icon-btn--on' : ''}`} onClick={toggleGestures} aria-pressed={gestures} title="Turn pages by waving at your webcam">
+            <Icon name="hand" />
+            <span className="icon-btn__label">Gestures</span>
+          </button>
+          <button
+            className={`icon-btn ${panelOpen ? 'icon-btn--on' : ''}`}
+            onClick={() => {
+              setPanelOpen(!panelOpen);
+              if (panelOpen) setActive(null);
+            }}
+            aria-pressed={panelOpen}
+            title="Comments"
+          >
+            <Icon name="comments" />
+            <span className="icon-btn__label">Comments</span>
+            {list.length > 0 && <span className="badge">{list.length}</span>}
+          </button>
+        </div>
+      </div>
+      <div className="reader__progress">
+        <div style={{ width: `${(page / pageCount) * 100}%`, background: book.color }} />
+      </div>
+
+      <main className={`reader__body ${panelOpen ? 'reader__body--panel' : ''}`}>
         {error ? (
           <p className="reader__message">This book couldn't be opened.</p>
         ) : doc ? (
-          <PdfPage key={page} doc={doc} pageNumber={page} direction={turn.current.direction} />
+          <PdfViewer key={bookId} ref={viewer} doc={doc} zoom={zoom} initialPage={startPage} onPageChange={onPageChange} onScale={setScale} />
         ) : (
           <p className="reader__message">Opening…</p>
         )}
-        <button className="reader__turn reader__turn--next" onClick={() => goTo(page + 1)} disabled={page >= pageCount} aria-label="Next page">
-          ›
-        </button>
+        {panelOpen && <CommentsPanel onJump={onJump} />}
+        {gestures && <GesturePanel onNext={() => goTo(page + 1)} onPrev={() => goTo(page - 1)} />}
       </main>
-
-      <footer className="reader__footer">
-        <div className="reader__progress">
-          <div style={{ width: `${(page / pageCount) * 100}%`, background: book.color }} />
-        </div>
-        <label className="reader__page">
-          Page
-          <input
-            key={page}
-            type="number"
-            min={1}
-            max={pageCount}
-            defaultValue={page}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') goTo(Number(e.currentTarget.value));
-            }}
-            onBlur={(e) => goTo(Number(e.currentTarget.value))}
-          />
-          of {pageCount}
-        </label>
-      </footer>
     </div>
   );
 }
